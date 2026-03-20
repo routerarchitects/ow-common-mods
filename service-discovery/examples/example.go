@@ -9,11 +9,9 @@ import (
 	"time"
 
 	"github.com/caarlos0/env/v11"
-	"github.com/gofiber/fiber/v3"
 	"github.com/routerarchitects/ow-common-mods/servicediscovery"
 	"github.com/routerarchitects/ra-common-mods/kafka"
 	ra_logger "github.com/routerarchitects/ra-common-mods/logger"
-	logger_routes "github.com/routerarchitects/ra-common-mods/logger-routes"
 )
 
 type Config struct {
@@ -37,7 +35,6 @@ func main() {
 
 	serviceDiscoveryLogger := ra_logger.Subsystem("service-discovery")
 	serviceDiscoveryLogger.Info("Service Discovery Logger Initiated")
-	serviceDiscoveryLogger.Debug("DEBUG Service Discovery Logger Initiated")
 
 	// Create discovery from env
 	discovery, err := servicediscovery.New(cfg.Discovery, cfg.Kafka, serviceDiscoveryLogger)
@@ -73,10 +70,6 @@ func main() {
 			}
 		}
 	}()
-
-	app := fiber.New()
-	logger_routes.RegisterFiberRoutes(app.Group("/logger"))
-	app.Listen(":8080")
 
 	// Wait for SIGTERM / SIGINT
 	sigCh := make(chan os.Signal, 1)

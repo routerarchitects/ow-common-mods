@@ -3,6 +3,7 @@ package servicediscovery
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -202,5 +203,48 @@ func TestDiscovery_PublishNow_Integration(t *testing.T) {
 	}
 	if msg.ID != d.Self().ID {
 		t.Errorf("Expected ID %d in message, got %d", d.Self().ID, msg.ID)
+	}
+}
+
+func TestNew_Validation(t *testing.T) {
+	valid := Config{
+		Topic:             "discovery",
+		ServiceType:       "svc-a",
+		ServiceVersion:    "1.0.0",
+		PrivateEndpoint:   "10.0.0.1:8080",
+		PublicEndpoint:    "svc-a.example.com:443",
+		KeepAliveInterval: 10 * time.Second,
+		ExpiryMultiplier:  2,
+		SweepInterval:     5 * time.Second,
+		Ordering:          OrderingLastSeen,
+	}
+
+	if _, err := New(valid, kafka.Config{}, nil); err != nil {
+		t.Fatalf("expected valid config to pass, got error: %v", err)
+	}
+
+	invalid := valid
+	invalid.Topic = ""
+	invalid.KeepAliveInterval = 0
+	invalid.ExpiryMultiplier = 0
+	invalid.SweepInterval = 0
+	invalid.Ordering = OrderingStrategy("bad-ordering")
+
+	_, err := New(invalid, kafka.Config{}, nil)
+	if err == nil {
+		t.Fatal("expected validation error, got nil")
+	}
+
+	msg := err.Error()
+	for _, expected := range []string{
+		"topic is required",
+		"keep-alive interval must be greater than zero",
+		"expiry multiplier must be at least 1",
+		"sweep interval must be greater than zero",
+		`invalid ordering strategy: "bad-ordering"`,
+	} {
+		if !strings.Contains(msg, expected) {
+			t.Fatalf("expected error to contain %q, got: %s", expected, msg)
+		}
 	}
 }

@@ -2,9 +2,7 @@ module github.com/routerarchitects/ow-common-mods/servicediscovery
 
 go 1.25.0
 
-replace github.com/routerarchitects/ra-common-mods/kafka => ../../ra-common-mods/kafka
-
-require github.com/routerarchitects/ra-common-mods/kafka v0.0.0-00010101000000-000000000000
+require github.com/routerarchitects/ra-common-mods/kafka v0.1.0
 
 require (
 	github.com/IBM/sarama v1.43.3 // indirect

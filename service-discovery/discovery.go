@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,14 +41,8 @@ func New(dcfg Config, kcfg kafka.Config, logger *slog.Logger) (*Discovery, error
 	if logger == nil {
 		logger = slog.Default()
 	}
-	if dcfg.ExpiryMultiplier < 1 {
-		dcfg.ExpiryMultiplier = 2
-	}
-	if dcfg.KeepAliveInterval <= 0 {
-		dcfg.KeepAliveInterval = 10 * time.Second
-	}
-	if dcfg.SweepInterval <= 0 {
-		dcfg.SweepInterval = 5 * time.Second
+	if err := validateConfig(dcfg); err != nil {
+		return nil, err
 	}
 
 	// Identity
@@ -86,6 +81,43 @@ func New(dcfg Config, kcfg kafka.Config, logger *slog.Logger) (*Discovery, error
 	}, nil
 }
 
+func validateConfig(cfg Config) error {
+	var errs []error
+
+	if strings.TrimSpace(cfg.Topic) == "" {
+		errs = append(errs, errors.New("topic is required"))
+	}
+	if strings.TrimSpace(cfg.ServiceType) == "" {
+		errs = append(errs, errors.New("service type is required"))
+	}
+	if strings.TrimSpace(cfg.ServiceVersion) == "" {
+		errs = append(errs, errors.New("service version is required"))
+	}
+	if strings.TrimSpace(cfg.PrivateEndpoint) == "" {
+		errs = append(errs, errors.New("private endpoint is required"))
+	}
+	if strings.TrimSpace(cfg.PublicEndpoint) == "" {
+		errs = append(errs, errors.New("public endpoint is required"))
+	}
+	if cfg.KeepAliveInterval <= 0 {
+		errs = append(errs, errors.New("keep-alive interval must be greater than zero"))
+	}
+	if cfg.ExpiryMultiplier < 1 {
+		errs = append(errs, errors.New("expiry multiplier must be at least 1"))
+	}
+	if cfg.SweepInterval <= 0 {
+		errs = append(errs, errors.New("sweep interval must be greater than zero"))
+	}
+
+	switch cfg.Ordering {
+	case OrderingRoundRobin, OrderingLastSeen, OrderingLatestVersion, OrderingNone:
+	default:
+		errs = append(errs, fmt.Errorf("invalid ordering strategy: %q", cfg.Ordering))
+	}
+
+	return errors.Join(errs...)
+}
+
 // Store returns the local discovery store.
 func (d *Discovery) Store() *store { return d.store }
 
@@ -116,7 +148,7 @@ func (d *Discovery) Start(parent context.Context) error {
 
 	// Start consumer loop.
 	d.wg.Go(func() {
-		err := d.consumer.Subscribe(d.ctx, d.dcfg.Topic, d.handleMessage, &kafka.SubscribeOptions{Workers: 1, BufferSize: 500})
+		err := d.consumer.Subscribe(d.ctx, d.dcfg.Topic, d.handleMessage, nil)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			log.Error("discovery consumer exited", "error", err)
 		}
@@ -194,9 +226,6 @@ func (d *Discovery) sweeperLoop(ctx context.Context) {
 	defer t.Stop()
 
 	expiry := time.Duration(d.dcfg.ExpiryMultiplier) * d.dcfg.KeepAliveInterval
-	if expiry <= 0 {
-		expiry = 2 * 10 * time.Second
-	}
 
 	for {
 		select {
