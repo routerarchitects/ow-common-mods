@@ -36,8 +36,8 @@ func main() {
 	serviceDiscoveryLogger := ra_logger.Subsystem("service-discovery")
 	serviceDiscoveryLogger.Info("Service Discovery Logger Initiated")
 
-	// Create discovery from env
-	discovery, err := servicediscovery.New(cfg.Discovery, cfg.Kafka, serviceDiscoveryLogger)
+	// Create discovery from env (via interface)
+	discovery, err := servicediscovery.NewService(cfg.Discovery, cfg.Kafka, serviceDiscoveryLogger)
 	if err != nil {
 		log.Fatalf("failed to create discovery: %v", err)
 	}
@@ -51,7 +51,7 @@ func main() {
 	}
 	logger.Info("service discovery started")
 
-	// Periodically query discovered instances
+	// Periodically query a single discovered instance based on ordering strategy
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
@@ -61,12 +61,12 @@ func main() {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				instances := discovery.Store().GetServiceInstances("owanalytics")
-				logger.Info(
-					"discovered instances",
-					"count", len(instances),
-					"instances", instances,
-				)
+				instance := discovery.Store().GetServiceInstances("owanalytics")
+				if instance == nil {
+					logger.Info("no discovered instance", "service", "owanalytics")
+					continue
+				}
+				logger.Info("selected instance", "service", "owanalytics", "instance", *instance)
 			}
 		}
 	}()

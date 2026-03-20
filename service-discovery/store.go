@@ -136,9 +136,9 @@ func (s *store) sweepExpired(now time.Time, expiryTimeout time.Duration) {
 	}
 }
 
-// GetServiceInstances returns discovered instances for a given service type.
+// GetAllServiceInstances returns discovered instances for a given service type.
 // It never returns the calling (self) instance.
-func (s *store) GetServiceInstances(serviceType string) []Instance {
+func (s *store) GetAllServiceInstances(serviceType string) []Instance {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -208,4 +208,15 @@ func (s *store) GetServiceInstances(serviceType string) []Instance {
 	default:
 		return instances
 	}
+}
+
+// GetServiceInstances returns a single discovered instance for the given service type,
+// selected according to the configured ordering strategy.
+func (s *store) GetServiceInstances(serviceType string) *Instance {
+	instances := s.GetAllServiceInstances(serviceType)
+	if len(instances) == 0 {
+		return nil
+	}
+	selected := instances[0]
+	return &selected
 }

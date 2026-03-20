@@ -3,6 +3,7 @@ package servicediscovery
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -109,7 +110,7 @@ func TestDiscovery_HandleMessage_Join(t *testing.T) {
 	d.handleMessage(context.Background(), kMsg)
 
 	// Assert
-	instances := d.Store().GetServiceInstances("other-service")
+	instances := d.Store().GetAllServiceInstances("other-service")
 	if len(instances) != 1 {
 		t.Fatalf("Expected 1 instance, got %d", len(instances))
 	}
@@ -134,7 +135,7 @@ func TestDiscovery_HandleMessage_Leave(t *testing.T) {
 	d.handleMessage(context.Background(), &kafka.Message{Value: joinPayload})
 
 	// Verify added
-	if len(d.Store().GetServiceInstances("temp-service")) != 1 {
+	if len(d.Store().GetAllServiceInstances("temp-service")) != 1 {
 		t.Fatal("Setup failed: instance not added")
 	}
 
@@ -147,7 +148,7 @@ func TestDiscovery_HandleMessage_Leave(t *testing.T) {
 	d.handleMessage(context.Background(), &kafka.Message{Value: leavePayload})
 
 	// Assert
-	instances := d.Store().GetServiceInstances("temp-service")
+	instances := d.Store().GetAllServiceInstances("temp-service")
 	if len(instances) != 0 {
 		t.Errorf("Expected 0 instances after leave, got %d", len(instances))
 	}
@@ -170,14 +171,14 @@ func TestDiscovery_HandleMessage_Self(t *testing.T) {
 	d.handleMessage(context.Background(), &kafka.Message{Value: payload})
 
 	// Assert
-	// Should NOT be in store (GetServiceInstances excludes self, but we can verify internal map or just trust public API)
-	// If it was added, GetServiceInstances would filter it out anyway?
-	// Let's check internal store state if possible, or rely on GetServiceInstances returning 0.
-	// Actually, d.store.GetServiceInstances explicitly excludes self.
+	// Should NOT be in store (GetAllServiceInstances excludes self, but we can verify internal map or just trust public API)
+	// If it was added, GetAllServiceInstances would filter it out anyway?
+	// Let's check internal store state if possible, or rely on GetAllServiceInstances returning 0.
+	// Actually, d.store.GetAllServiceInstances explicitly excludes self.
 	// So to be sure it wasn't added to the store map at all, we might need to inspect internals
 	// or assume the test "TestStore_SelfExclusion" covers the retrieval logic, and here we just check end result.
 
-	instances := d.Store().GetServiceInstances(d.Self().Type)
+	instances := d.Store().GetAllServiceInstances(d.Self().Type)
 	if len(instances) != 0 {
 		t.Errorf("Should not have discovered self")
 	}
@@ -219,9 +220,13 @@ func TestNew_Validation(t *testing.T) {
 		Ordering:          OrderingLastSeen,
 	}
 
-	if _, err := New(valid, kafka.Config{}, nil); err != nil {
+	d, err := New(valid, kafka.Config{}, nil)
+	if err != nil {
 		t.Fatalf("expected valid config to pass, got error: %v", err)
 	}
+	t.Cleanup(func() {
+		_ = d.Stop(context.Background())
+	})
 
 	invalid := valid
 	invalid.Topic = ""
@@ -230,7 +235,7 @@ func TestNew_Validation(t *testing.T) {
 	invalid.SweepInterval = 0
 	invalid.Ordering = OrderingStrategy("bad-ordering")
 
-	_, err := New(invalid, kafka.Config{}, nil)
+	_, err = New(invalid, kafka.Config{}, nil)
 	if err == nil {
 		t.Fatal("expected validation error, got nil")
 	}
@@ -247,4 +252,39 @@ func TestNew_Validation(t *testing.T) {
 			t.Fatalf("expected error to contain %q, got: %s", expected, msg)
 		}
 	}
+}
+
+func TestNew_Singleton(t *testing.T) {
+	cfg := Config{
+		Topic:             "discovery",
+		ServiceType:       "svc-a",
+		ServiceVersion:    "1.0.0",
+		PrivateEndpoint:   "10.0.0.1:8080",
+		PublicEndpoint:    "svc-a.example.com:443",
+		KeepAliveInterval: 10 * time.Second,
+		ExpiryMultiplier:  2,
+		SweepInterval:     5 * time.Second,
+		Ordering:          OrderingLastSeen,
+	}
+
+	first, err := New(cfg, kafka.Config{}, nil)
+	if err != nil {
+		t.Fatalf("expected first New call to succeed, got: %v", err)
+	}
+	defer func() { _ = first.Stop(context.Background()) }()
+
+	_, err = New(cfg, kafka.Config{}, nil)
+	if !errors.Is(err, ErrSingletonAlreadyCreated) {
+		t.Fatalf("expected ErrSingletonAlreadyCreated, got: %v", err)
+	}
+
+	if err := first.Stop(context.Background()); err != nil {
+		t.Fatalf("expected first instance to stop cleanly, got: %v", err)
+	}
+
+	second, err := New(cfg, kafka.Config{}, nil)
+	if err != nil {
+		t.Fatalf("expected New to succeed after Stop, got: %v", err)
+	}
+	_ = second.Stop(context.Background())
 }

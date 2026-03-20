@@ -52,8 +52,8 @@ func main() {
 		// ... other kafka settings
 	}
 
-	// 3. Create Discovery Agent
-	discovery, err := sd.New(dcfg, kcfg, logger)
+	// 3. Create Discovery Agent via interface
+	discovery, err := sd.NewService(dcfg, kcfg, logger)
 	if err != nil {
 		panic(err)
 	}
@@ -65,12 +65,12 @@ func main() {
 	}
 	defer discovery.Stop(ctx)
 
-	// 5. Lookup Services
+	// 5. Lookup one service instance (selected by configured ordering strategy)
 	ticker := time.NewTicker(5 * time.Second)
 	for range ticker.C {
-		instances := discovery.Store().GetServiceInstances("payment-service")
-		for _, inst := range instances {
-			logger.Info("Found service", "id", inst.ID, "endpoint", inst.PrivateEndPoint)
+		inst := discovery.Store().GetServiceInstances("payment-service")
+		if inst != nil {
+			logger.Info("Selected service", "id", inst.ID, "endpoint", inst.PrivateEndPoint)
 		}
 	}
 }
@@ -95,6 +95,23 @@ func main() {
 ## Ordering Strategies
 
 - **`last-seen`**: Sorts instances by the most recent heartbeat. Useful for active-active where you prefer the freshest instance.
-- **`round-robin`**: Rotates the list of instances on every call to `GetServiceInstances`, providing simple client-side load balancing.
+- **`round-robin`**: Rotates the selected instance on every call to `GetServiceInstances`, providing simple client-side load balancing.
 - **`latest-version`**: prioritizing instances with the highest semantic version (e.g., traffic shifting during blue-green deployments).
-- **`none`**: No ordering. Returns instances in the order they are received.
+- **`none`**: No ordering. Returned order is not guaranteed (implementation-dependent).
+
+## Store API
+
+- `GetServiceInstances(serviceType)` returns one selected instance according to `DISCOVERY_ORDERING`.
+- `GetAllServiceInstances(serviceType)` returns all discovered instances according to `DISCOVERY_ORDERING`.
+
+## Interfaces
+
+- `Service` is the public interface for lifecycle, publishing, identity, and store access.
+- `Store` is the public interface for instance lookup methods.
+- Use `NewService(...)` to get the module as the `Service` interface.
+
+## Singleton Behavior
+
+- This module is singleton per process.
+- Calling `New(...)` or `NewService(...)` more than once without stopping the existing instance returns `ErrSingletonAlreadyCreated`.
+- If `Start()` fails, applications are expected to treat that as a fatal startup error for the created singleton instance (do not create another instance as a retry strategy).

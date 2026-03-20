@@ -18,6 +18,11 @@ import (
 
 var log *slog.Logger
 
+var singletonMu sync.Mutex
+var singleton *Discovery
+
+var ErrSingletonAlreadyCreated = errors.New("discovery singleton already created")
+
 // Discovery manages consuming and publishing discovery events.
 type Discovery struct {
 	dcfg Config
@@ -43,6 +48,11 @@ func New(dcfg Config, kcfg kafka.Config, logger *slog.Logger) (*Discovery, error
 	}
 	if err := validateConfig(dcfg); err != nil {
 		return nil, err
+	}
+	singletonMu.Lock()
+	defer singletonMu.Unlock()
+	if singleton != nil {
+		return nil, ErrSingletonAlreadyCreated
 	}
 
 	// Identity
@@ -73,12 +83,19 @@ func New(dcfg Config, kcfg kafka.Config, logger *slog.Logger) (*Discovery, error
 	st := newStore(self.PrivateEndPoint, self.ID, dcfg.Ordering)
 	log = logger
 
-	return &Discovery{
+	d := &Discovery{
 		dcfg:  dcfg,
 		kcfg:  kcfg,
 		self:  self,
 		store: st,
-	}, nil
+	}
+	singleton = d
+	return d, nil
+}
+
+// NewService creates a Service interface implementation.
+func NewService(dcfg Config, kcfg kafka.Config, logger *slog.Logger) (Service, error) {
+	return New(dcfg, kcfg, logger)
 }
 
 func validateConfig(cfg Config) error {
@@ -119,7 +136,7 @@ func validateConfig(cfg Config) error {
 }
 
 // Store returns the local discovery store.
-func (d *Discovery) Store() *store { return d.store }
+func (d *Discovery) Store() Store { return d.store }
 
 // Self returns this instance's advertised identity.
 func (d *Discovery) Self() Instance { return d.self }
@@ -170,6 +187,7 @@ func (d *Discovery) Start(parent context.Context) error {
 // Stop stops all loops and publishes a best-effort leave.
 func (d *Discovery) Stop(ctx context.Context) error {
 	if d.ctx == nil {
+		d.releaseSingleton()
 		return nil
 	}
 	if ctx == nil {
@@ -183,24 +201,29 @@ func (d *Discovery) Stop(ctx context.Context) error {
 	_ = d.publish(leaveCtx, EventLeave)
 	cancel()
 
-	// Close kafka resources.
+	// Close consumer to unblock subscribe loops and then wait for goroutines.
 	var firstErr error
 	if d.consumer != nil {
 		if err := d.consumer.Close(); err != nil {
 			firstErr = err
 		}
-	}
-	if d.producer != nil {
-		if err := d.producer.Close(); err != nil {
-			firstErr = err
-		}
+		d.consumer = nil
 	}
 
 	// Wait for goroutines.
 	d.wg.Wait()
 
+	// Close producer after loops have stopped so no goroutine publishes while closing.
+	if d.producer != nil {
+		if err := d.producer.Close(); err != nil {
+			firstErr = err
+		}
+		d.producer = nil
+	}
+
 	d.ctx = nil
 	d.cancel = nil
+	d.releaseSingleton()
 	return firstErr
 }
 
@@ -338,4 +361,12 @@ func (d *Discovery) PublishNow(ctx context.Context, event EventType) error {
 // SetOrdering updates the store ordering strategy.
 func (d *Discovery) SetOrdering(ordering OrderingStrategy) {
 	d.store.setOrdering(ordering)
+}
+
+func (d *Discovery) releaseSingleton() {
+	singletonMu.Lock()
+	defer singletonMu.Unlock()
+	if singleton == d {
+		singleton = nil
+	}
 }

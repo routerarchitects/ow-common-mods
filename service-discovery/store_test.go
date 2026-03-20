@@ -27,7 +27,7 @@ func TestStore_Upsert_And_Get(t *testing.T) {
 	store.upsert(inst)
 
 	// Assert
-	instances := store.GetServiceInstances("auth-service")
+	instances := store.GetAllServiceInstances("auth-service")
 	if len(instances) != 1 {
 		t.Fatalf("Expected 1 instance, got %d", len(instances))
 	}
@@ -68,7 +68,7 @@ func TestStore_SelfExclusion(t *testing.T) {
 	store.upsert(otherInst)
 
 	// Action
-	instances := store.GetServiceInstances("auth-service")
+	instances := store.GetAllServiceInstances("auth-service")
 
 	// Assert
 	if len(instances) != 1 {
@@ -104,7 +104,7 @@ func TestStore_EndpointCollision(t *testing.T) {
 	store.upsert(instB)
 
 	// Action
-	instances := store.GetServiceInstances("payment-service")
+	instances := store.GetAllServiceInstances("payment-service")
 
 	// Assert
 	if len(instances) != 1 {
@@ -143,7 +143,7 @@ func TestStore_SweepExpired(t *testing.T) {
 	store.sweepExpired(now, expiry)
 
 	// Assert
-	instances := store.GetServiceInstances("svc")
+	instances := store.GetAllServiceInstances("svc")
 	if len(instances) != 1 {
 		t.Fatalf("Expected 1 instance, got %d", len(instances))
 	}
@@ -167,7 +167,7 @@ func TestStore_Ordering_LastSeen(t *testing.T) {
 	store.upsert(i3)
 
 	// Action
-	list := store.GetServiceInstances("svc")
+	list := store.GetAllServiceInstances("svc")
 
 	// Assert: Expect i2 (newest), i3, i1 (oldest)
 	if len(list) != 3 {
@@ -205,7 +205,7 @@ func TestStore_Ordering_LatestVersion(t *testing.T) {
 	store.upsert(i3)
 
 	// Action
-	list := store.GetServiceInstances("svc")
+	list := store.GetAllServiceInstances("svc")
 
 	// Assert
 	// Should only contain i2 (Version 2.0.0)
@@ -230,7 +230,7 @@ func TestStore_Ordering_RoundRobin(t *testing.T) {
 
 	// The implementation sorts by ID asc first: [10, 20]
 	// Call 1: Rotate by 1 -> [20, 10]
-	list1 := store.GetServiceInstances("svc")
+	list1 := store.GetAllServiceInstances("svc")
 	if len(list1) != 2 {
 		t.Fatal("Expected 2 instances")
 	}
@@ -244,7 +244,7 @@ func TestStore_Ordering_RoundRobin(t *testing.T) {
 	// 2nd call: Add(1) -> 2. 2%2 = 0. off=0.
 	// rotated = append(inst[0:], inst[:0]...) -> [10, 20]
 
-	list2 := store.GetServiceInstances("svc")
+	list2 := store.GetAllServiceInstances("svc")
 
 	if list1[0].ID == list2[0].ID {
 		t.Error("Round robin did not rotate the list")
@@ -252,6 +252,45 @@ func TestStore_Ordering_RoundRobin(t *testing.T) {
 
 	if list1[0].ID != 20 || list2[0].ID != 10 {
 		t.Errorf("Unexpected rotation sequence. Call1: %v, Call2: %v", getInstanceIDs(list1), getInstanceIDs(list2))
+	}
+}
+
+func TestStore_GetServiceInstances_SelectsLatestSeen(t *testing.T) {
+	store := newStore("self:80", 1, OrderingLastSeen)
+	now := time.Now().UTC()
+	store.upsert(Instance{ID: 10, Type: "svc", PrivateEndPoint: "1", LastSeenUTC: now.Add(-1 * time.Minute)})
+	store.upsert(Instance{ID: 20, Type: "svc", PrivateEndPoint: "2", LastSeenUTC: now})
+
+	selected := store.GetServiceInstances("svc")
+	if selected == nil {
+		t.Fatal("expected one selected instance, got nil")
+	}
+	if selected.ID != 20 {
+		t.Fatalf("expected latest-seen instance ID 20, got %d", selected.ID)
+	}
+}
+
+func TestStore_GetServiceInstances_RoundRobin(t *testing.T) {
+	store := newStore("self:80", 1, OrderingRoundRobin)
+	store.upsert(Instance{ID: 10, Type: "svc", PrivateEndPoint: "1", LastSeenUTC: time.Now()})
+	store.upsert(Instance{ID: 20, Type: "svc", PrivateEndPoint: "2", LastSeenUTC: time.Now()})
+
+	first := store.GetServiceInstances("svc")
+	second := store.GetServiceInstances("svc")
+
+	if first == nil || second == nil {
+		t.Fatal("expected selected instances, got nil")
+	}
+	if first.ID == second.ID {
+		t.Fatalf("expected round-robin to rotate selection, got %d then %d", first.ID, second.ID)
+	}
+}
+
+func TestStore_GetServiceInstances_NoneWhenEmpty(t *testing.T) {
+	store := newStore("self:80", 1, OrderingLastSeen)
+	selected := store.GetServiceInstances("svc")
+	if selected != nil {
+		t.Fatalf("expected nil when no instances exist, got %+v", *selected)
 	}
 }
 
