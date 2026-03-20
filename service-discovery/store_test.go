@@ -182,38 +182,30 @@ func TestStore_Ordering_LastSeen(t *testing.T) {
 // Higher versions should come first.
 func TestStore_Ordering_LatestVersion(t *testing.T) {
 	store := newStore("self:80", 1, OrderingLatestVersion)
+	now := time.Now().UTC()
 
-	// v2.0.0, v1.0.0, v1.1.0
-	// Expected Order: v2.0.0, v1.1.0, v1.0.0
-	// But note discovery.go implementation:
-	// "within the best version, order by last-seen desc"
-	// Actually looking at discovery.go:
-	// It finds "best" version, filters ONLY those, and returns them.
-	// Wait, code says:
-	// 		best := instances[0].Version
-	// 		... find max version ...
-	// 		filtered = append(filtered, inst) if version == best
-	// 		return filtered
-	// So it ONLY returns the instances with the HIGHEST version.
-
-	i1 := Instance{ID: 1, Type: "svc", PrivateEndPoint: "1", Version: "1.0.0"}
-	i2 := Instance{ID: 2, Type: "svc", PrivateEndPoint: "2", Version: "2.0.0"}
-	i3 := Instance{ID: 3, Type: "svc", PrivateEndPoint: "3", Version: "1.5.0"}
+	// Expected sort:
+	// - version desc
+	// - then last-seen desc for equal versions
+	i1 := Instance{ID: 2, Type: "svc", PrivateEndPoint: "1", Version: "1.0.0", LastSeenUTC: now.Add(-4 * time.Minute)}
+	i2 := Instance{ID: 3, Type: "svc", PrivateEndPoint: "2", Version: "2.0.0", LastSeenUTC: now.Add(-2 * time.Minute)}
+	i3 := Instance{ID: 4, Type: "svc", PrivateEndPoint: "3", Version: "1.5.0", LastSeenUTC: now}
+	i4 := Instance{ID: 5, Type: "svc", PrivateEndPoint: "4", Version: "2.0.0", LastSeenUTC: now.Add(-1 * time.Minute)}
 
 	store.upsert(i1)
 	store.upsert(i2)
 	store.upsert(i3)
+	store.upsert(i4)
 
 	// Action
 	list := store.GetAllServiceInstances("svc")
 
 	// Assert
-	// Should only contain i2 (Version 2.0.0)
-	if len(list) != 1 {
-		t.Fatalf("Expected 1 instance (best version), got %d", len(list))
+	if len(list) != 4 {
+		t.Fatalf("Expected 4 instances, got %d", len(list))
 	}
-	if list[0].Version != "2.0.0" {
-		t.Errorf("Expected version 2.0.0, got %s", list[0].Version)
+	if list[0].ID != 5 || list[1].ID != 3 || list[2].ID != 4 || list[3].ID != 2 {
+		t.Errorf("Order mismatch. Got IDs: %v", getInstanceIDs(list))
 	}
 }
 

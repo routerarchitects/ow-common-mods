@@ -168,22 +168,14 @@ func (s *store) GetAllServiceInstances(serviceType string) []Instance {
 		})
 		return instances
 	case OrderingLatestVersion:
-		best := instances[0].Version
-		for _, inst := range instances[1:] {
-			if compareVersionLoose(inst.Version, best) > 0 {
-				best = inst.Version
-			}
-		}
-		filtered := instances[:0]
-		for _, inst := range instances {
-			if compareVersionLoose(inst.Version, best) == 0 {
-				filtered = append(filtered, inst)
-			}
-		}
-		instances = filtered
-		// within the best version, order by last-seen desc
 		sort.Slice(instances, func(i, j int) bool {
-			return instances[i].LastSeenUTC.After(instances[j].LastSeenUTC)
+			if cmp := compareVersionLoose(instances[i].Version, instances[j].Version); cmp != 0 {
+				return cmp > 0
+			}
+			if !instances[i].LastSeenUTC.Equal(instances[j].LastSeenUTC) {
+				return instances[i].LastSeenUTC.After(instances[j].LastSeenUTC)
+			}
+			return instances[i].ID < instances[j].ID
 		})
 		return instances
 	case OrderingRoundRobin:
