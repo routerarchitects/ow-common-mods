@@ -1,34 +1,31 @@
-package logger_routes
+package subsystemmodules
 
 import (
+	"crypto/x509"
+	"encoding/pem"
+	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
-	"runtime/debug"
 	"sort"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+	serviceVersion "github.com/routerarchitects/ra-common-mods/build-info"
 	"github.com/routerarchitects/ra-common-mods/logger"
 )
 
-var processStartUnix = atomic.Int64{}
+var processStartUnix int64
 
 func init() {
-	processStartUnix.Store(time.Now().Unix())
+	processStartUnix = time.Now().Unix()
 }
 
-var supportedLogLevelNames = []string{
-	"none",
-	"fatal",
-	"critical",
-	"error",
-	"warning",
-	"notice",
-	"information",
-	"debug",
-	"trace",
+var supportedLogLevelNames = logger.GetAllLevels()
+
+type Routes struct {
+	cfg Config
 }
 
 type setLogLevelSubsystem struct {
@@ -42,10 +39,15 @@ type systemPostRequest struct {
 	Extra      map[string]interface{} `json:"-"`
 }
 
-// RegisterFiberRoutes registers the system command routes.
-func RegisterFiberRoutes(r fiber.Router) {
-	r.Get("/api/v1/system", handleSystemGet)
-	r.Post("/api/v1/system", handleSystemPost)
+// New creates a route handler with the provided config.
+func NewSubsytems(c Config) *Routes {
+	return &Routes{cfg: c}
+}
+
+// RegisterFiberRoutes registers the system command routes on the receiver.
+func (rt *Routes) RegisterFiberRoutes(r fiber.Router) {
+	r.Get("/api/v1/system", rt.handleSystemGet)
+	r.Post("/api/v1/system", rt.handleSystemPost)
 	r.Options("/api/v1/system", handleSystemOptions)
 }
 
@@ -54,14 +56,14 @@ func handleSystemOptions(c fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
-func handleSystemGet(c fiber.Ctx) error {
+func (rt *Routes) handleSystemGet(c fiber.Ctx) error {
 	switch strings.TrimSpace(c.Query("command")) {
 	case "info":
-		return c.JSON(getSystemInfo())
-	case "extraConfiguration":
-		return c.JSON(fiber.Map{
-			"additionalConfiguration": false,
-		})
+		systemInfo, err := rt.getSystemInfo(c)
+		if err != nil {
+			return err
+		}
+		return c.JSON(systemInfo)
 	case "resources":
 		return c.JSON(getResourceUsage())
 	default:
@@ -69,7 +71,7 @@ func handleSystemGet(c fiber.Ctx) error {
 	}
 }
 
-func handleSystemPost(c fiber.Ctx) error {
+func (rt *Routes) handleSystemPost(c fiber.Ctx) error {
 	var req systemPostRequest
 	if err := c.Bind().Body(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(invalidParametersResponse())
@@ -110,20 +112,15 @@ func handleSetLogLevel(c fiber.Ctx, rawSubsystems []setLogLevelSubsystem) error 
 		tag := item.Tag
 		value := item.Value
 
-		normalized, ok := normalizeIncomingLevel(value)
-		if !ok {
-			return c.Status(fiber.StatusBadRequest).JSON(invalidParametersResponse())
-		}
-
 		if strings.EqualFold(tag, "all") {
 			for name := range current {
-				updates[name] = normalized
+				updates[name] = value
 			}
 			continue
 		}
 
 		// Keep success semantics even when the subsystem name is unknown.
-		updates[tag] = normalized
+		updates[tag] = value
 	}
 
 	if err := logger.UpdateSubsystemLevels(updates); err != nil {
@@ -133,23 +130,26 @@ func handleSetLogLevel(c fiber.Ctx, rawSubsystems []setLogLevelSubsystem) error 
 	return c.JSON(successResponse())
 }
 
-func getSystemInfo() fiber.Map {
+func (rt *Routes) getSystemInfo(c fiber.Ctx) (fiber.Map, error) {
 	hostname, _ := os.Hostname()
-	version := "unknown"
-	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
-		version = info.Main.Version
+
+	certInfoFromFile, err := certInfoFromFile(rt.cfg.CERTS)
+	if err != nil {
+		return fiber.Map{}, c.Status(fiber.StatusInternalServerError).JSON(invalidSubsystemResponse("certificates"))
 	}
+	version := serviceVersion.GetFullVersion()
 
 	return fiber.Map{
 		"version":      version,
-		"uptime":       time.Now().Unix() - processStartUnix.Load(),
-		"start":        processStartUnix.Load(),
+		"uptime":       time.Now().Unix() - processStartUnix,
+		"start":        processStartUnix,
 		"os":           runtime.GOOS,
 		"processors":   runtime.NumCPU(),
 		"hostname":     hostname,
-		"ui":           "",
-		"certificates": []fiber.Map{},
-	}
+		"UI":           rt.cfg.UI_EndPoint,
+		"certificates": certInfoFromFile,
+	}, nil
+
 }
 
 func getResourceUsage() fiber.Map {
@@ -185,7 +185,7 @@ func getSubsystemTagList() []fiber.Map {
 	for _, name := range names {
 		tagList = append(tagList, fiber.Map{
 			"tag":   name,
-			"value": normalizeOutgoingLevel(levels[name]),
+			"value": strings.ToLower(levels[name]),
 		})
 	}
 	return tagList
@@ -201,36 +201,33 @@ func getSubsystemNames() []string {
 	return names
 }
 
-func normalizeIncomingLevel(level string) (string, bool) {
-	switch strings.ToLower(strings.TrimSpace(level)) {
-	case "none", "fatal", "critical", "error":
-		return "error", true
-	case "warning":
-		return "warn", true
-	case "notice", "information":
-		return "info", true
-	case "debug", "trace":
-		return "debug", true
-	case "warn", "info":
-		return strings.ToLower(strings.TrimSpace(level)), true
-	default:
-		return "", false
-	}
-}
+func certInfoFromFile(certPath []string) ([]map[string]interface{}, error) {
+	certificatesMap := make([]map[string]interface{}, 0, len(certPath))
 
-func normalizeOutgoingLevel(level string) string {
-	switch strings.ToLower(strings.TrimSpace(level)) {
-	case "warn", "warning":
-		return "warning"
-	case "info", "notice", "information":
-		return "information"
-	case "debug", "trace":
-		return "debug"
-	case "error", "fatal", "critical", "none":
-		return "error"
-	default:
-		return "information"
+	for _, path := range certPath {
+		pemData, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+
+		block, _ := pem.Decode(pemData)
+		if block == nil {
+			return nil, fmt.Errorf("failed to decode PEM: %s", certPath)
+		}
+
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, err
+		}
+
+		certificatesMap = append(certificatesMap, map[string]interface{}{
+			"filename":  filepath.Base(path),
+			"expiresOn": cert.NotAfter.Unix(),
+		})
+
 	}
+
+	return certificatesMap, nil
 }
 
 func invalidCommandResponse(method string) fiber.Map {
@@ -246,6 +243,14 @@ func invalidParametersResponse() fiber.Map {
 		"ErrorCode":        fiber.StatusBadRequest,
 		"ErrorDetails":     "POST",
 		"ErrorDescription": "1018: Invalid or missing parameters.",
+	}
+}
+
+func invalidSubsystemResponse(tag string) fiber.Map {
+	return fiber.Map{
+		"ErrorCode":        fiber.StatusInternalServerError,
+		"ErrorDetails":     tag,
+		"ErrorDescription": "1002: Internal error. Please try later",
 	}
 }
 

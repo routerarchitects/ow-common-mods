@@ -1,12 +1,13 @@
-module github.com/routerarchitects/ow-common-mods/logger-routes
+module github.com/routerarchitects/ow-common-mods/subsystem-modules
 
 go 1.25.1
 
-replace github.com/routerarchitects/ra-common-mods/logger => ./../../ra-common-mods/logger
+replace github.com/routerarchitects/ra-common-mods/build-info => ../../ra-common-mods/build-info
 
 require (
 	github.com/gofiber/fiber/v3 v3.0.0-rc.3
-	github.com/routerarchitects/ra-common-mods/logger v0.0.0-00010101000000-000000000000
+	github.com/routerarchitects/ra-common-mods/build-info v0.0.0-00010101000000-000000000000
+	github.com/routerarchitects/ra-common-mods/logger v0.1.0
 )
 
 require (
