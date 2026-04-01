@@ -1,4 +1,4 @@
-package subsystemmodules
+package system
 
 import (
 	"crypto/x509"
@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
-	serviceVersion "github.com/routerarchitects/ra-common-mods/build-info"
+	serviceVersion "github.com/routerarchitects/ra-common-mods/buildinfo"
 	"github.com/routerarchitects/ra-common-mods/logger"
 )
 
@@ -21,8 +21,6 @@ var processStartUnix int64
 func init() {
 	processStartUnix = time.Now().Unix()
 }
-
-var supportedLogLevelNames = logger.GetAllLevels()
 
 type Routes struct {
 	cfg Config
@@ -86,7 +84,7 @@ func (rt *Routes) handleSystemPost(c fiber.Ctx) error {
 		})
 	case "getloglevelnames":
 		return c.JSON(fiber.Map{
-			"list": supportedLogLevelNames,
+			"list": logger.GetAllLevels(),
 		})
 	case "getsubsystemnames":
 		return c.JSON(fiber.Map{
@@ -133,11 +131,15 @@ func handleSetLogLevel(c fiber.Ctx, rawSubsystems []setLogLevelSubsystem) error 
 func (rt *Routes) getSystemInfo(c fiber.Ctx) (fiber.Map, error) {
 	hostname, _ := os.Hostname()
 
-	certInfoFromFile, err := certInfoFromFile(rt.cfg.CERTS)
-	if err != nil {
-		return fiber.Map{}, c.Status(fiber.StatusInternalServerError).JSON(invalidSubsystemResponse("certificates"))
+	certInfoFromFile := certInfoFromFile([]string{rt.cfg.Server_certificate_path, rt.cfg.Websocket_certificate_path})
+
+	version := serviceVersion.GetVersion()
+	commitHash := serviceVersion.GetCommitHash()
+	if version == "" {
+		version = commitHash
+	} else {
+		version = fmt.Sprintf("%s-%s", version, commitHash)
 	}
-	version := serviceVersion.GetFullVersion()
 
 	return fiber.Map{
 		"version":      version,
@@ -201,33 +203,51 @@ func getSubsystemNames() []string {
 	return names
 }
 
-func certInfoFromFile(certPath []string) ([]map[string]interface{}, error) {
+func certInfoFromFile(certPath []string) []map[string]interface{} {
+	certificates := []string{}
+
+	for _, c := range certPath {
+		if c != "" {
+			certificates = append(certificates, c)
+		}
+	}
 	certificatesMap := make([]map[string]interface{}, 0, len(certPath))
 
-	for _, path := range certPath {
+	for _, path := range certificates {
 		pemData, err := os.ReadFile(path)
 		if err != nil {
-			return nil, err
+			certificatesMap = append(certificatesMap, map[string]interface{}{
+				"filename":  "file not found",
+				"expiresOn": 0,
+			})
+			continue
 		}
 
 		block, _ := pem.Decode(pemData)
 		if block == nil {
-			return nil, fmt.Errorf("failed to decode PEM: %s", certPath)
+			certificatesMap = append(certificatesMap, map[string]interface{}{
+				"filename":  "file not found",
+				"expiresOn": 0,
+			})
+			continue
 		}
 
 		cert, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
-			return nil, err
+			certificatesMap = append(certificatesMap, map[string]interface{}{
+				"filename":  "file not found",
+				"expiresOn": 0,
+			})
+			continue
 		}
 
 		certificatesMap = append(certificatesMap, map[string]interface{}{
 			"filename":  filepath.Base(path),
 			"expiresOn": cert.NotAfter.Unix(),
 		})
-
 	}
 
-	return certificatesMap, nil
+	return certificatesMap
 }
 
 func invalidCommandResponse(method string) fiber.Map {
@@ -243,14 +263,6 @@ func invalidParametersResponse() fiber.Map {
 		"ErrorCode":        fiber.StatusBadRequest,
 		"ErrorDetails":     "POST",
 		"ErrorDescription": "1018: Invalid or missing parameters.",
-	}
-}
-
-func invalidSubsystemResponse(tag string) fiber.Map {
-	return fiber.Map{
-		"ErrorCode":        fiber.StatusInternalServerError,
-		"ErrorDetails":     tag,
-		"ErrorDescription": "1002: Internal error. Please try later",
 	}
 }
 
