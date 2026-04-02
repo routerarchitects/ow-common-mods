@@ -213,7 +213,7 @@ func certInfoFromFile(certificates []string) []map[string]interface{} {
 		pemData, err := os.ReadFile(path)
 		if err != nil {
 			certificatesMap = append(certificatesMap, map[string]interface{}{
-				"filename":  "file not found",
+				"filename":  fmt.Sprintf("file not found : %s", filepath.Base(path)),
 				"expiresOn": 0,
 			})
 			continue
@@ -222,7 +222,7 @@ func certInfoFromFile(certificates []string) []map[string]interface{} {
 		block, _ := pem.Decode(pemData)
 		if block == nil {
 			certificatesMap = append(certificatesMap, map[string]interface{}{
-				"filename":  "invalid cert file",
+				"filename":  fmt.Sprintf("invalid cert file : %s", filepath.Base(path)),
 				"expiresOn": 0,
 			})
 			continue
@@ -231,7 +231,7 @@ func certInfoFromFile(certificates []string) []map[string]interface{} {
 		cert, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
 			certificatesMap = append(certificatesMap, map[string]interface{}{
-				"filename":  "invalid cert file",
+				"filename":  fmt.Sprintf("invalid cert file : %s", filepath.Base(path)),
 				"expiresOn": 0,
 			})
 			continue
