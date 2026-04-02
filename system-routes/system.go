@@ -57,11 +57,7 @@ func handleSystemOptions(c fiber.Ctx) error {
 func (rt *Routes) handleSystemGet(c fiber.Ctx) error {
 	switch strings.TrimSpace(c.Query("command")) {
 	case "info":
-		systemInfo, err := rt.getSystemInfo(c)
-		if err != nil {
-			return err
-		}
-		return c.JSON(systemInfo)
+		return c.JSON(rt.getSystemInfo())
 	case "resources":
 		return c.JSON(getResourceUsage())
 	default:
@@ -128,7 +124,7 @@ func handleSetLogLevel(c fiber.Ctx, rawSubsystems []setLogLevelSubsystem) error 
 	return c.JSON(successResponse())
 }
 
-func (rt *Routes) getSystemInfo(c fiber.Ctx) (fiber.Map, error) {
+func (rt *Routes) getSystemInfo() fiber.Map {
 	hostname, _ := os.Hostname()
 
 	certInfo := certInfoFromFile([]string{rt.cfg.serverCertificatePath, rt.cfg.websocketCertificatePath})
@@ -150,7 +146,7 @@ func (rt *Routes) getSystemInfo(c fiber.Ctx) (fiber.Map, error) {
 		"hostname":     hostname,
 		"UI":           rt.cfg.uiEndPoint,
 		"certificates": certInfo,
-	}, nil
+	}
 
 }
 
