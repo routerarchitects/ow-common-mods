@@ -203,17 +203,13 @@ func getSubsystemNames() []string {
 	return names
 }
 
-func certInfoFromFile(certPath []string) []map[string]interface{} {
-	certificates := []string{}
-
-	for _, c := range certPath {
-		if c != "" {
-			certificates = append(certificates, c)
-		}
-	}
-	certificatesMap := make([]map[string]interface{}, 0, len(certPath))
+func certInfoFromFile(certificates []string) []map[string]interface{} {
+	certificatesMap := make([]map[string]interface{}, 0, len(certificates))
 
 	for _, path := range certificates {
+		if path == "" {
+			continue
+		}
 		pemData, err := os.ReadFile(path)
 		if err != nil {
 			certificatesMap = append(certificatesMap, map[string]interface{}{
