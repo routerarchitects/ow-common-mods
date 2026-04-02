@@ -131,7 +131,7 @@ func handleSetLogLevel(c fiber.Ctx, rawSubsystems []setLogLevelSubsystem) error 
 func (rt *Routes) getSystemInfo(c fiber.Ctx) (fiber.Map, error) {
 	hostname, _ := os.Hostname()
 
-	certInfoFromFile := certInfoFromFile([]string{rt.cfg.Server_certificate_path, rt.cfg.Websocket_certificate_path})
+	certInfo := certInfoFromFile([]string{rt.cfg.ServerCertificatePath, rt.cfg.WebsocketCertificatePath})
 
 	version := serviceVersion.GetVersion()
 	commitHash := serviceVersion.GetCommitHash()
@@ -148,8 +148,8 @@ func (rt *Routes) getSystemInfo(c fiber.Ctx) (fiber.Map, error) {
 		"os":           runtime.GOOS,
 		"processors":   runtime.NumCPU(),
 		"hostname":     hostname,
-		"UI":           rt.cfg.UI_EndPoint,
-		"certificates": certInfoFromFile,
+		"UI":           rt.cfg.UiEndPoint,
+		"certificates": certInfo,
 	}, nil
 
 }
@@ -226,7 +226,7 @@ func certInfoFromFile(certPath []string) []map[string]interface{} {
 		block, _ := pem.Decode(pemData)
 		if block == nil {
 			certificatesMap = append(certificatesMap, map[string]interface{}{
-				"filename":  "file not found",
+				"filename":  "invalid cert file",
 				"expiresOn": 0,
 			})
 			continue
@@ -235,7 +235,7 @@ func certInfoFromFile(certPath []string) []map[string]interface{} {
 		cert, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
 			certificatesMap = append(certificatesMap, map[string]interface{}{
-				"filename":  "file not found",
+				"filename":  "invalid cert file",
 				"expiresOn": 0,
 			})
 			continue

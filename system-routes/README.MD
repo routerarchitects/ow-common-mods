@@ -1,35 +1,38 @@
-# subsystem-modules
+# system-routes
 
-`subsystem-modules` provides Fiber routes for `/api/v1/system` so a service can expose runtime system details and manage subsystem log levels through the shared `ra-common-mods/logger` package.
+`system-routes` provides Fiber handlers for `/api/v1/system`. It exposes runtime system details and log-level management backed by `ra-common-mods/logger`.
 
-## What It Does
+## What Changed
 
-The module registers these handlers:
+The current module behavior is:
+
+- Route handling now lives in [system.go].
+- The config now uses explicit certificate path fields.
+- Build version data is read from `github.com/routerarchitects/ra-common-mods/buildinfo`.
+
+## Registered Routes
 
 - `GET /api/v1/system?command=info`
 - `GET /api/v1/system?command=resources`
 - `POST /api/v1/system`
 - `OPTIONS /api/v1/system`
 
-At runtime, it works like this:
+Typical integration flow:
 
-1. A service creates `subsystemmodules.Config`.
-2. The service constructs the handler with `NewSubsytems(config)`.
-3. The handler is attached to a Fiber router with `RegisterFiberRoutes(...)`.
-4. Incoming requests are routed by `command`.
-5. Log-level commands read or update subsystem state through `logger.GetSubsystemLevels()` and `logger.UpdateSubsystemLevels(...)`.
-6. System info responses include service version, uptime, host details, configured UI endpoint, and certificate expiry details.
+1. Build a `system.Config`.
+2. Create the handler with `NewSubsytems(config)`.
+3. Register routes with `RegisterFiberRoutes(...)`.
 
 ## API Behavior
 
 ### GET `/api/v1/system`
 
-Supported query values for `command`:
+Supported `command` query values:
 
-- `info`: returns version, uptime, start time, OS, CPU count, hostname, UI endpoint, and certificate expiry metadata.
+- `info`: returns version, uptime, start time, OS, CPU count, hostname, configured UI endpoint, and certificate expiry metadata.
 - `resources`: returns process memory usage and number of open file descriptors.
 
-Any other `command` returns a `400` response.
+Any other value returns `400 Bad Request`.
 
 ### POST `/api/v1/system`
 
@@ -40,9 +43,9 @@ Supported JSON `command` values:
 - `getloglevelnames`: returns the supported log level names from the logger package.
 - `getsubsystemnames`: returns the available subsystem names.
 
-Any other `command` returns a `400` response.
+`reload` is currently rejected with the same `400 Bad Request` response as any unsupported command.
 
-Example request for `setloglevel`:
+Example `setloglevel` request:
 
 ```json
 {
@@ -59,54 +62,67 @@ Example request for `setloglevel`:
 Notes:
 
 - If `tag` is `all`, the same log level is applied to every known subsystem.
-- `getloglevels` returns the level values in lowercase.
+- Unknown subsystem tags are still forwarded to `logger.UpdateSubsystemLevels(...)`.
+- `getloglevels` returns level values in lowercase.
 - `getsubsystemnames` returns subsystem names in lowercase.
-
-## Environment Variables
-
-The module reads configuration from these environment variables:
-
-- `UI_ENDPOINT`: UI URL returned in the `info` response.
-- `CERTS`: comma-separated list of certificate file paths.
 
 ## Configuration
 
-The config type is:
+Current config type:
 
 ```go
 type Config struct {
-	UI_EndPoint string   `env:"UI_ENDPOINT" envDefault:"https://openwifi.wlan.local"`
-	CERTS       []string `env:"CERTS" envSeparator:","`
+	UiEndPoint                string `env:"SYSTEM_URI_UI"`
+	ServerCertificatePath    string `env:"INTERNAL_RESTAPI_HOST_CERT"`
+	WebsocketCertificatePath string `env:"WEBSOCKET_HOST_CERT"`
 }
 ```
 
-Example environment configuration:
+Environment variables:
+
+- `SYSTEM_URI_UI`: UI URL returned in the `info` response.
+- `INTERNAL_RESTAPI_HOST_CERT`: PEM certificate path used for the REST API certificate entry.
+- `WEBSOCKET_HOST_CERT`: PEM certificate path used for the WebSocket certificate entry.
+
+Example:
 
 ```bash
-export UI_ENDPOINT="https://openwifi.wlan.local"
-export CERTS="/etc/my-service/certs/restapi-ca.pem,/etc/my-service/certs/server.pem,/etc/my-service/certs/restapi-ca.pem,/etc/my-service/certs/server.pem"
+export SYSTEM_URI_UI="https://openwifi.wlan.local"
+export INTERNAL_RESTAPI_HOST_CERT="/etc/my-service/certs/restapi.pem"
+export WEBSOCKET_HOST_CERT="/etc/my-service/certs/websocket.pem"
 ```
 
-## Certificate Handling
+## `info` Response Details
 
-The `info` response reads certificate metadata from the paths configured in `CERTS`.
+The `info` response includes:
 
-Current behavior:
+- `version`
+- `uptime`
+- `start`
+- `os`
+- `processors`
+- `hostname`
+- `UI`
+- `certificates`
 
-- Each `CERTS` entry must be a direct path to a PEM certificate file.
-- Directory paths are not supported by the current implementation.
-- For each file, the response includes:
+Version handling:
+
+- The module reads version information from `buildinfo.GetVersion()` and `buildinfo.GetCommitHash()`.
+- If the version is empty, the commit hash is returned by itself.
+- Otherwise the response format is `<version>-<commitHash>`.
+
+Certificate handling:
+
+- The module reads certificate data from `INTERNAL_RESTAPI_HOST_CERT` and `WEBSOCKET_HOST_CERT`.
+- Empty paths are skipped.
+- Valid PEM certificates return:
   - `filename`
   - `expiresOn` as a Unix timestamp
-
-If any configured certificate path cannot be read or parsed, the `info` request returns an internal error for the `certificates` subsystem.
-
-## Version Handling
-
-The module reads service version information from `github.com/routerarchitects/ra-common-mods/build-info` and includes it in the `info` response.
+- Missing files return `filename: "file not found"` with `expiresOn: 0`.
+- Invalid PEM or invalid certificate data return `filename: "invalid cert file"` with `expiresOn: 0`.
 
 ## Dependencies
 
 - `github.com/gofiber/fiber/v3`
+- `github.com/routerarchitects/ra-common-mods/buildinfo`
 - `github.com/routerarchitects/ra-common-mods/logger`
-- `github.com/routerarchitects/ra-common-mods/build-info`
