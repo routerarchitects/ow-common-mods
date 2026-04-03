@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	serviceVersion "github.com/routerarchitects/ra-common-mods/buildinfo"
 	"github.com/routerarchitects/ra-common-mods/kafka"
 )
 
@@ -68,7 +69,7 @@ func New(dcfg Config, kcfg kafka.Config, logger *slog.Logger) (*Discovery, error
 			ID:              id,
 			Key:             key,
 			Type:            dcfg.ServiceType,
-			Version:         dcfg.ServiceVersion,
+			Version:         GetServiceVersion(),
 			PrivateEndPoint: dcfg.PrivateEndpoint,
 			PublicEndPoint:  dcfg.PublicEndpoint,
 			LastSeenUTC:     time.Now().UTC(),
@@ -97,6 +98,18 @@ func NewService(dcfg Config, kcfg kafka.Config, logger *slog.Logger) (Service, e
 	return New(dcfg, kcfg, logger)
 }
 
+func GetServiceVersion() string {
+	version := serviceVersion.GetVersion()
+	commitHash := serviceVersion.GetCommitHash()
+	if version == "" {
+		version = commitHash
+	} else {
+		version = fmt.Sprintf("%s-%s", version, commitHash)
+	}
+
+	return version
+}
+
 func validateConfig(cfg Config) error {
 	var errs []error
 
@@ -106,7 +119,7 @@ func validateConfig(cfg Config) error {
 	if strings.TrimSpace(cfg.ServiceType) == "" {
 		errs = append(errs, errors.New("service type is required"))
 	}
-	if strings.TrimSpace(cfg.ServiceVersion) == "" {
+	if strings.TrimSpace(GetServiceVersion()) == "" {
 		errs = append(errs, errors.New("service version is required"))
 	}
 	if strings.TrimSpace(cfg.PrivateEndpoint) == "" {
