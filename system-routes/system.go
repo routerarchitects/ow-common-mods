@@ -127,7 +127,7 @@ func handleSetLogLevel(c fiber.Ctx, rawSubsystems []setLogLevelSubsystem) error 
 func (rt *Routes) getSystemInfo() fiber.Map {
 	hostname, _ := os.Hostname()
 
-	certInfo := certInfoFromFile([]string{rt.cfg.serverCertificatePath, rt.cfg.websocketCertificatePath})
+	certInfo := certInfoFromFile([]string{rt.cfg.ServerCertificatePath, rt.cfg.WebsocketCertificatePath})
 
 	version := serviceVersion.GetVersion()
 	commitHash := serviceVersion.GetCommitHash()
@@ -144,7 +144,7 @@ func (rt *Routes) getSystemInfo() fiber.Map {
 		"os":           runtime.GOOS,
 		"processors":   runtime.NumCPU(),
 		"hostname":     hostname,
-		"UI":           rt.cfg.uiEndPoint,
+		"UI":           rt.cfg.UiEndPoint,
 		"certificates": certInfo,
 	}
 
