@@ -48,6 +48,16 @@ func (s *store) upsert(inst Instance) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// If same (type,id) already exists with a different private endpoint,
+	// remove the stale reverse index entry first.
+	if m := s.byTypeID[inst.Type]; m != nil {
+		if old := m[inst.ID]; old != nil &&
+			old.PrivateEndPoint != "" &&
+			old.PrivateEndPoint != inst.PrivateEndPoint {
+			delete(s.byPrivateEP, old.PrivateEndPoint)
+		}
+	}
+
 	// If the same private endpoint is already registered for a different instance id,
 	// remove the old mapping to avoid duplicates.
 	if ref, ok := s.byPrivateEP[inst.PrivateEndPoint]; ok {
@@ -92,25 +102,6 @@ func (s *store) removeByTypeID(serviceType string, id int64) {
 	if len(m) == 0 {
 		delete(s.byTypeID, serviceType)
 		delete(s.rrCursor, serviceType)
-	}
-}
-
-func (s *store) removeByPrivateEP(privateEP string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	ref, ok := s.byPrivateEP[privateEP]
-	if !ok {
-		return
-	}
-	delete(s.byPrivateEP, privateEP)
-	m := s.byTypeID[ref.Type]
-	if m != nil {
-		delete(m, ref.ID)
-		if len(m) == 0 {
-			delete(s.byTypeID, ref.Type)
-			delete(s.rrCursor, ref.Type)
-		}
 	}
 }
 
