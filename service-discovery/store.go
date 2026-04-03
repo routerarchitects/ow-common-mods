@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-type instanceRef struct {
+type instanceLookup struct {
 	Type string
 	ID   int64
 }
@@ -18,7 +18,7 @@ type store struct {
 	mu sync.RWMutex
 
 	byTypeID    map[string]map[int64]*Instance
-	byPrivateEP map[string]instanceRef
+	byPrivateEP map[string]instanceLookup
 
 	selfPrivateEP string
 	selfID        int64
@@ -30,7 +30,7 @@ type store struct {
 func newStore(selfPrivateEP string, selfID int64, ordering OrderingStrategy) *store {
 	return &store{
 		byTypeID:      make(map[string]map[int64]*Instance),
-		byPrivateEP:   make(map[string]instanceRef),
+		byPrivateEP:   make(map[string]instanceLookup),
 		selfPrivateEP: selfPrivateEP,
 		selfID:        selfID,
 		ordering:      ordering,
@@ -79,7 +79,7 @@ func (s *store) upsert(inst Instance) {
 	// Create copy
 	cpy := inst
 	m[inst.ID] = &cpy
-	s.byPrivateEP[inst.PrivateEndPoint] = instanceRef{Type: inst.Type, ID: inst.ID}
+	s.byPrivateEP[inst.PrivateEndPoint] = instanceLookup{Type: inst.Type, ID: inst.ID}
 
 	if s.rrCursor[inst.Type] == nil {
 		s.rrCursor[inst.Type] = &atomic.Uint64{}

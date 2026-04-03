@@ -21,8 +21,6 @@ type Config struct {
 
 	// ServiceType is the name of the service (e.g., "auth-service", "payment-service").
 	ServiceType string `env:"DISCOVERY_SERVICE_TYPE,required"`
-	// ServiceVersion indicates the version of the service deployment (e.g., "v1.0.0").
-	ServiceVersion string `env:"DISCOVERY_SERVICE_VERSION,required"`
 	// PrivateEndpoint is the internal network address (host:port) where the service listens.
 	PrivateEndpoint string `env:"DISCOVERY_PRIVATE_ENDPOINT,required"`
 	// PublicEndpoint is the external network address (host:port) accessible to clients, if applicable.
