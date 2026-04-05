@@ -76,9 +76,7 @@ func (s *store) upsert(inst Instance) {
 		m = make(map[int64]*Instance)
 		s.byTypeID[inst.Type] = m
 	}
-	// Create copy
-	cpy := inst
-	m[inst.ID] = &cpy
+	m[inst.ID] = &inst
 	s.byPrivateEP[inst.PrivateEndPoint] = instanceLookup{Type: inst.Type, ID: inst.ID}
 
 	if s.rrCursor[inst.Type] == nil {

@@ -13,13 +13,13 @@ import (
 	"sync"
 	"time"
 
-	serviceVersion "github.com/routerarchitects/ra-common-mods/buildinfo"
+	"github.com/routerarchitects/ra-common-mods/buildinfo"
 	"github.com/routerarchitects/ra-common-mods/kafka"
 )
 
 var log *slog.Logger
 
-var ErrSingletonAlreadyCreated = errors.New("discovery singleton already created")
+var ErrSingletonAlreadyCreated = errors.New("discovery instance already created")
 
 // Discovery manages consuming and publishing discovery events.
 type Discovery struct {
@@ -41,66 +41,64 @@ type Discovery struct {
 }
 
 var (
-	once      sync.Once
-	singleton *Discovery
-	initErr   error
+	singletonMu sync.Mutex
+	singleton   *Discovery
 )
 
 func New(dcfg Config, kcfg kafka.Config, logger *slog.Logger) (*Discovery, error) {
-	once.Do(func() {
-		if logger == nil {
-			logger = slog.Default()
-		}
-		if err := validateConfig(dcfg); err != nil {
-			initErr = err
-			return
-		}
+	singletonMu.Lock()
+	defer singletonMu.Unlock()
 
-		id := dcfg.InstanceID
-		key := dcfg.InstanceKey
-		if id == 0 {
-			id = mustRandInt64()
-		}
-		if key == "" {
-			key = mustRandHex(32)
-		}
+	if singleton != nil {
+		return nil, ErrSingletonAlreadyCreated
+	}
 
-		self := Instance{
-			ID:              id,
-			Key:             key,
-			Type:            dcfg.ServiceType,
-			Version:         GetServiceVersion(),
-			PrivateEndPoint: dcfg.PrivateEndpoint,
-			PublicEndPoint:  dcfg.PublicEndpoint,
-			LastSeenUTC:     time.Now().UTC(),
-		}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if err := validateConfig(dcfg); err != nil {
+		return nil, err
+	}
 
-		if kcfg.Consumer.GroupID == "" {
-			kcfg.Consumer.GroupID = fmt.Sprintf("%s-discovery-%d", dcfg.ServiceType, id)
-		}
+	id := dcfg.InstanceID
+	key := dcfg.InstanceKey
+	if id == 0 {
+		id = mustRandInt64()
+	}
+	if key == "" {
+		key = mustRandHex(32)
+	}
 
-		st := newStore(self.PrivateEndPoint, self.ID, dcfg.Ordering)
-		log = logger
+	self := Instance{
+		ID:              id,
+		Key:             key,
+		Type:            dcfg.ServiceType,
+		Version:         GetServiceVersion(),
+		PrivateEndPoint: dcfg.PrivateEndpoint,
+		PublicEndPoint:  dcfg.PublicEndpoint,
+		LastSeenUTC:     time.Now().UTC(),
+	}
 
-		singleton = &Discovery{
-			dcfg:  dcfg,
-			kcfg:  kcfg,
-			self:  self,
-			store: st,
-		}
-	})
+	if kcfg.Consumer.GroupID == "" {
+		kcfg.Consumer.GroupID = fmt.Sprintf("%s-discovery-%d", dcfg.ServiceType, id)
+	}
 
-	return singleton, initErr
-}
+	st := newStore(self.PrivateEndPoint, self.ID, dcfg.Ordering)
+	log = logger
 
-// NewService creates a Service interface implementation.
-func NewService(dcfg Config, kcfg kafka.Config, logger *slog.Logger) (Service, error) {
-	return New(dcfg, kcfg, logger)
+	singleton = &Discovery{
+		dcfg:  dcfg,
+		kcfg:  kcfg,
+		self:  self,
+		store: st,
+	}
+
+	return singleton, nil
 }
 
 func GetServiceVersion() string {
-	version := serviceVersion.GetVersion()
-	commitHash := serviceVersion.GetCommitHash()
+	version := buildinfo.GetVersion()
+	commitHash := buildinfo.GetCommitHash()
 	if version == "" {
 		version = commitHash
 	} else {
@@ -198,21 +196,25 @@ func (d *Discovery) Start(parent context.Context) error {
 	return nil
 }
 
+func (d *Discovery) GetInstances() *Discovery {
+	if singleton == nil {
+		return nil
+	}
+	return singleton
+}
+
 // Stop stops all loops and publishes a best-effort leave.
 func (d *Discovery) Stop(ctx context.Context) error {
+	defer d.releaseSingleton()
 	if d.ctx == nil {
+		d.releaseSingleton()
 		return nil
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	var firstErr error
-	setErr := func(err error) {
-		if firstErr == nil && err != nil {
-			firstErr = err
-		}
-	}
+	var err error
 
 	// Stop loops.
 	d.cancel()
@@ -225,12 +227,12 @@ func (d *Discovery) Stop(ctx context.Context) error {
 
 	// Best-effort leave publish.
 	leaveCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	setErr(d.publish(leaveCtx, EventLeave))
+	err = errors.Join(err, d.publish(leaveCtx, EventLeave))
 	cancel()
 
 	// Close consumer to unblock subscribe loops and then wait for goroutines.
 	if d.consumer != nil {
-		setErr(d.consumer.Close())
+		err = errors.Join(err, d.consumer.Close())
 		d.consumer = nil
 	}
 
@@ -239,14 +241,14 @@ func (d *Discovery) Stop(ctx context.Context) error {
 
 	// Close producer after leave has been published and loops have stopped.
 	if d.producer != nil {
-		setErr(d.producer.Close())
+		err = errors.Join(err, d.producer.Close())
 		d.producer = nil
 	}
 
 	d.ctx = nil
 	d.cancel = nil
 	d.publisherDone = nil
-	return firstErr
+	return err
 }
 
 func (d *Discovery) publisherLoop(ctx context.Context) {
@@ -382,4 +384,12 @@ func (d *Discovery) PublishNow(ctx context.Context, event EventType) error {
 // SetOrdering updates the store ordering strategy.
 func (d *Discovery) SetOrdering(ordering OrderingStrategy) {
 	d.store.setOrdering(ordering)
+}
+
+func (d *Discovery) releaseSingleton() {
+	singletonMu.Lock()
+	defer singletonMu.Unlock()
+	if singleton == d {
+		singleton = nil
+	}
 }

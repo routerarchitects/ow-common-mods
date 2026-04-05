@@ -20,18 +20,18 @@ type Config struct {
 	Topic string `env:"DISCOVERY_TOPIC,required"`
 
 	// ServiceType is the name of the service (e.g., "auth-service", "payment-service").
-	ServiceType string `env:"DISCOVERY_SERVICE_TYPE,required"`
+	ServiceType string `env:"SERVICE_TYPE,required"`
 	// PrivateEndpoint is the internal network address (host:port) where the service listens.
-	PrivateEndpoint string `env:"DISCOVERY_PRIVATE_ENDPOINT,required"`
+	PrivateEndpoint string `env:"SYSTEM_URI_PRIVATE,required"`
 	// PublicEndpoint is the external network address (host:port) accessible to clients, if applicable.
-	PublicEndpoint string `env:"DISCOVERY_PUBLIC_ENDPOINT,required"`
+	PublicEndpoint string `env:"SYSTEM_URI_PUBLIC,required"`
 
 	// InstanceID is an optional stable unique identifier for the instance.
 	// If not provided, a random ID is generated at startup.
-	InstanceID int64 `env:"DISCOVERY_INSTANCE_ID"`
+	InstanceID int64 `env:"SYSTEM_INSTANCE_ID"`
 	// InstanceKey is an optional stable key string for the instance.
 	// If not provided, a random key is generated at startup.
-	InstanceKey string `env:"DISCOVERY_INSTANCE_KEY"`
+	InstanceKey string `env:"SYSTEM_INSTANCE_KEY"`
 
 	// KeepAliveInterval is the duration between sending heartbeat messages to the discovery topic.
 	KeepAliveInterval time.Duration `env:"DISCOVERY_KEEPALIVE_INTERVAL" envDefault:"10s"`
