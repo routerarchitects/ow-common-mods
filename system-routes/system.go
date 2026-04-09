@@ -128,6 +128,10 @@ func (rt *routes) getSystemInfo() fiber.Map {
 
 	version := serviceVersion.GetVersion()
 	commitHash := serviceVersion.GetCommitHash()
+	if commitHash == "" {
+		commitHash = "unknown"
+	}
+
 	if version == "" {
 		version = commitHash
 	} else {
@@ -180,7 +184,7 @@ func getSubsystemTagList() []fiber.Map {
 	for _, name := range names {
 		tagList = append(tagList, fiber.Map{
 			"tag":   name,
-			"value": strings.ToLower(levels[name]),
+			"value": levels[name],
 		})
 	}
 	return tagList
