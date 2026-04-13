@@ -1,4 +1,4 @@
-module github.com/routerarchitects/ow-common-mods/system-routes
+module github.com/routerarchitects/ow-common-mods/fiber/system-routes
 
 go 1.25.1
 
