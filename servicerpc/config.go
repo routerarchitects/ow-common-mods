@@ -1,11 +1,7 @@
 package servicerpc
 
-import (
-	"time"
-)
-
 type ServiceRpcConfig struct {
-	TLSRootCA    string
-	Timeout      time.Duration
+	TLSRootCA string
+	// InternalName is sent as X-INTERNAL-NAME header on every request.
 	InternalName string
 }
