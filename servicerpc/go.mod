@@ -2,14 +2,14 @@ module github.com/routerarchitects/ow-common-mods/servicerpc
 
 go 1.25.0
 
-replace github.com/routerarchitects/ow-common-mods/apperrors => ../apperrors
+replace github.com/routerarchitects/ra-common-mods/apperror => ../../ra-common-mods/apperror
 
-replace github.com/routerarchitects/ow-common-mods/servicediscovery => ../servicediscovery
+replace github.com/routerarchitects/ow-common-mods/servicediscovery => ../service-discovery
 
 require (
 	github.com/gofiber/fiber/v3 v3.1.0
-	github.com/routerarchitects/ow-common-mods/apperrors v0.0.0-00010101000000-000000000000
 	github.com/routerarchitects/ow-common-mods/servicediscovery v0.0.0-00010101000000-000000000000
+	github.com/routerarchitects/ra-common-mods/apperror v0.0.0-00010101000000-000000000000
 )
 
 require (

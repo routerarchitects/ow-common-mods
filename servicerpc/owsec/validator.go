@@ -2,54 +2,53 @@ package owsec
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 	"strings"
 
-	"github.com/gofiber/fiber/v3"
-	"github.com/routerarchitects/ow-common-mods/apperrors"
 	"github.com/routerarchitects/ow-common-mods/servicerpc/common"
+	"github.com/routerarchitects/ra-common-mods/apperror"
 )
 
 const serviceName = "owsec"
 
-type Validator struct {
+type SecurityClient struct {
 	deps *common.ServiceRPCBase
 }
 
-func NewValidator(deps *common.ServiceRPCBase) *Validator {
-	return &Validator{
+func NewSecurityClient(deps *common.ServiceRPCBase) *SecurityClient {
+	return &SecurityClient{
 		deps: deps,
 	}
 }
 
-func (v *Validator) ValidateToken(rawToken string) error {
+// ValidateToken validates subscription/token with fallback endpoint support.
+//
+// Caller must pass ctx with timeout/deadline.
+func (s *SecurityClient) ValidateToken(ctx context.Context, rawToken string) error {
 	token := strings.TrimSpace(rawToken)
 
-	resp, err := v.deps.Send(context.Background(), fiber.MethodGet, "/api/v1/validateSubToken?token="+url.QueryEscape(token), nil, serviceName)
+	resp, err := s.deps.Send(ctx, http.MethodGet, "/api/v1/validateSubToken?token="+url.QueryEscape(token), nil, serviceName)
 	if resp != nil {
 		defer resp.Close()
 	}
 
-	if err == nil && resp != nil && resp.StatusCode() == fiber.StatusOK {
+	if err == nil && resp != nil && resp.StatusCode() == http.StatusOK {
 		return nil
 	}
 
-	fallbackResp, fallbackErr := v.deps.Send(context.Background(), fiber.MethodGet, "/api/v1/validateToken?token="+url.QueryEscape(token), nil, serviceName)
+	fallbackResp, fallbackErr := s.deps.Send(ctx, http.MethodGet, "/api/v1/validateToken?token="+url.QueryEscape(token), nil, serviceName)
 	if fallbackResp != nil {
 		defer fallbackResp.Close()
 	}
 
 	if fallbackErr != nil {
-		v.deps.Logger.With("service", serviceName, "operation", "validateToken").Error("validation request failed")
-		err := apperrors.New(apperrors.CodeUnauthorized, "")
-		info := apperrors.InfoOf(err)
-		return apperrors.Wrap(apperrors.CodeUnauthorized, info.Description, fallbackErr)
+		s.deps.Logger().With("service", serviceName, "operation", "validateToken").Error("validation request failed")
+		return apperror.Wrap(apperror.CodeUnauthorized, "unauthorized", fallbackErr)
 	}
 
-	if fallbackResp == nil || fallbackResp.StatusCode() != fiber.StatusOK {
-		err := apperrors.New(apperrors.CodeUnauthorized, "")
-		info := apperrors.InfoOf(err)
-		return apperrors.Wrap(apperrors.CodeUnauthorized, info.Description, nil)
+	if fallbackResp == nil || fallbackResp.StatusCode() != http.StatusOK {
+		return apperror.New(apperror.CodeUnauthorized, "unauthorized")
 	}
 
 	return nil
