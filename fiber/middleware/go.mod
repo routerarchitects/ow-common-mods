@@ -1,4 +1,4 @@
-module github.com/routerarchitects/ow-common-mods/fibermiddleware
+module github.com/routerarchitects/ow-common-mods/fiber/middleware
 
 go 1.25.0
 

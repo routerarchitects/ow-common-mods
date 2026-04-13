@@ -1,4 +1,4 @@
-# Auth Middleware (`fibermiddleware/auth`)
+# Auth Middleware (`fiber/middleware/auth`)
 
 This package provides reusable Fiber middlewares for:
 
@@ -8,7 +8,7 @@ This package provides reusable Fiber middlewares for:
 ## Installation
 
 ```bash
-go get github.com/routerarchitects/ow-common-mods/fibermiddleware
+go get github.com/routerarchitects/ow-common-mods/fiber/middleware
 ```
 
 ## Internal Auth (`RequireInternalAPIKey`)
