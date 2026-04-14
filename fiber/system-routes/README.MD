@@ -1,59 +1,126 @@
 # system-routes
 
-`system-routes` provides Fiber handlers for `/api/v1/system`. It exposes runtime system details and log-level management backed by `ra-common-mods/logger`.
+`system-routes` registers Fiber handlers for `/api/v1/system`.
 
-## What Changed
+It provides:
 
-The current module behavior is:
+- system information (`command=info`)
+- process resource usage (`command=resources`)
+- runtime logger level read/update operations
 
-- Route handling now lives in [system.go].
-- The config now uses explicit certificate path fields.
-- Build version data is read from `github.com/routerarchitects/ra-common-mods/buildinfo`.
-
-## Registered Routes
-
-- `GET /api/v1/system?command=info`
-- `GET /api/v1/system?command=resources`
-- `POST /api/v1/system`
-- `OPTIONS /api/v1/system`
-
-Typical integration flow:
-
-1. Build a `system.Config`.
-2. Register routes with `RegisterRoutes(config, router)`.
-
-Example:
+## Register Routes
 
 ```go
 app := fiber.New()
-cfg := system.Config{}
+
+cfg := system.Config{
+	UiEndPoint:               "https://openwifi.wlan.local",
+	ServerCertificatePath:    "/etc/my-service/certs/restapi.pem",
+	WebsocketCertificatePath: "/etc/my-service/certs/websocket.pem",
+}
 
 system.RegisterRoutes(cfg, app)
 ```
 
-## API Behavior
+Registered endpoints:
 
-### GET `/api/v1/system`
+- `GET /api/v1/system`
+- `POST /api/v1/system`
+- `OPTIONS /api/v1/system`
 
-Supported `command` query values:
+`OPTIONS` returns `204 No Content` and header `Allow: GET,POST,OPTIONS`.
 
-- `info`: returns version, uptime, start time, OS, CPU count, hostname, configured UI endpoint, and certificate expiry metadata.
-- `resources`: returns process memory usage and number of open file descriptors.
+## Config
 
-Any other value returns `400 Bad Request`.
+```go
+type Config struct {
+	UiEndPoint               string `env:"SYSTEM_URI_UI" envDefault:"https://openwifi.wlan.local"`
+	ServerCertificatePath    string `env:"INTERNAL_RESTAPI_HOST_CERT"`
+	WebsocketCertificatePath string `env:"WEBSOCKET_HOST_CERT"`
+}
+```
 
-### POST `/api/v1/system`
+Environment variables:
 
-Supported JSON `command` values:
+- `SYSTEM_URI_UI`
+- `INTERNAL_RESTAPI_HOST_CERT`
+- `WEBSOCKET_HOST_CERT`
 
-- `setloglevel`: updates one or more subsystem log levels.
-- `getloglevels`: returns the current subsystem log-level mapping as `tagList`.
-- `getloglevelnames`: returns the supported log level names from the logger package.
-- `getsubsystemnames`: returns the available subsystem names.
+## GET `/api/v1/system`
 
-`reload` is currently rejected with the same `400 Bad Request` response as any unsupported command.
+Query param `command` supports:
 
-Example `setloglevel` request:
+- `info`
+- `resources`
+
+Any other value returns `400` with:
+
+```json
+{
+  "ErrorCode": 400,
+  "ErrorDetails": "GET",
+  "ErrorDescription": "1031: Invalid command."
+}
+```
+
+### `command=info` response
+
+Returns:
+
+- `version`
+- `uptime`
+- `start`
+- `os`
+- `processors`
+- `hostname`
+- `UI`
+- `certificates`
+
+Version format:
+
+- from `buildinfo.GetVersion()` and `buildinfo.GetCommitHash()`
+- if commit hash is empty, `"unknown"` is used
+- if version is empty, version field is only the commit hash
+- otherwise version field is `<version>-<commitHash>`
+
+Certificate list behavior:
+
+- inputs: `ServerCertificatePath` and `WebsocketCertificatePath`
+- empty path values are skipped
+- valid cert entry:
+  - `filename`: base file name
+  - `expiresOn`: `cert.NotAfter.Unix()`
+- missing file entry:
+  - `filename`: `"file not found : <baseName>"`
+  - `expiresOn`: `0`
+- invalid PEM/cert entry:
+  - `filename`: `"invalid cert file : <baseName>"`
+  - `expiresOn`: `0`
+
+### `command=resources` response
+
+Returns:
+
+- `numberOfFileDescriptors`
+- `currRealMem`
+- `peakRealMem`
+- `currVirtMem`
+- `peakVirtMem`
+
+## POST `/api/v1/system`
+
+Body supports `command`:
+
+- `setloglevel`
+- `getloglevels`
+- `getloglevelnames`
+- `getsubsystemnames`
+
+`reload` is rejected with the same invalid-command `400` response as unsupported commands.
+
+### `setloglevel`
+
+Request:
 
 ```json
 {
@@ -67,70 +134,78 @@ Example `setloglevel` request:
 }
 ```
 
-Notes:
+Behavior:
 
-- If `tag` is `all`, the same log level is applied to every known subsystem.
-- Unknown subsystem tags are still forwarded to `logger.UpdateSubsystemLevels(...)`.
-- `getloglevels` returns level values in lowercase.
-- `getsubsystemnames` returns subsystem names sorted in ascending order.
+- empty or missing `subsystems` returns invalid-parameters `400`
+- `tag=all` applies the same level to all known subsystems
+- unknown tags are still passed to `logger.UpdateSubsystemLevels`
+- if update succeeds, returns:
 
-## Configuration
-
-Current config type:
-
-```go
-type Config struct {
-	UiEndPoint               string `env:"SYSTEM_URI_UI" envDefault:"https://openwifi.wlan.local"`
-	ServerCertificatePath    string `env:"INTERNAL_RESTAPI_HOST_CERT"`
-	WebsocketCertificatePath string `env:"WEBSOCKET_HOST_CERT"`
+```json
+{
+  "result": "success"
 }
 ```
 
-Environment variables:
+### `getloglevels`
 
-- `SYSTEM_URI_UI`: UI URL returned in the `info` response.
-- `INTERNAL_RESTAPI_HOST_CERT`: PEM certificate path used for the REST API certificate entry.
-- `WEBSOCKET_HOST_CERT`: PEM certificate path used for the WebSocket certificate entry.
+Response shape:
 
-Example:
-
-```bash
-export SYSTEM_URI_UI="https://openwifi.wlan.local"
-export INTERNAL_RESTAPI_HOST_CERT="/etc/my-service/certs/restapi.pem"
-export WEBSOCKET_HOST_CERT="/etc/my-service/certs/websocket.pem"
+```json
+{
+  "tagList": [
+    {
+      "tag": "subsystem-name",
+      "value": "level"
+    }
+  ]
+}
 ```
 
-## `info` Response Details
+`tagList` is sorted by `tag` ascending.
 
-The `info` response includes:
+### `getloglevelnames`
 
-- `version`
-- `uptime`
-- `start`
-- `os`
-- `processors`
-- `hostname`
-- `UI`
-- `certificates`
+Response shape:
 
-Version handling:
+```json
+{
+  "list": ["debug", "info", "warn", "error"]
+}
+```
 
-- The module reads version information from `buildinfo.GetVersion()` and `buildinfo.GetCommitHash()`.
-- If the version is empty, the commit hash is returned by itself.
-- Otherwise the response format is `<version>-<commitHash>`.
+Values come from `logger.GetAllLevels()`.
 
-Certificate handling:
+### `getsubsystemnames`
 
-- The module reads certificate data from `INTERNAL_RESTAPI_HOST_CERT` and `WEBSOCKET_HOST_CERT`.
-- Empty paths are skipped.
-- Valid PEM certificates return:
-  - `filename`
-  - `expiresOn` as a Unix timestamp
-- Missing files return `filename: "file not found"` with `expiresOn: 0`.
-- Invalid PEM or invalid certificate data return `filename: "invalid cert file"` with `expiresOn: 0`.
+Response shape:
 
-## Dependencies
+```json
+{
+  "list": ["auth", "system", "wifi"]
+}
+```
 
-- `github.com/gofiber/fiber/v3`
-- `github.com/routerarchitects/ra-common-mods/buildinfo`
-- `github.com/routerarchitects/ra-common-mods/logger`
+List is sorted ascending.
+
+## Common POST Error Responses
+
+Invalid command:
+
+```json
+{
+  "ErrorCode": 400,
+  "ErrorDetails": "POST",
+  "ErrorDescription": "1031: Invalid command."
+}
+```
+
+Invalid or missing parameters:
+
+```json
+{
+  "ErrorCode": 400,
+  "ErrorDetails": "POST",
+  "ErrorDescription": "1018: Invalid or missing parameters."
+}
+```
