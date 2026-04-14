@@ -11,6 +11,12 @@ This package provides reusable Fiber middlewares for:
 go get github.com/routerarchitects/ow-common-mods/fiber/middleware
 ```
 
+Import path used in code:
+
+```go
+import "github.com/routerarchitects/ow-common-mods/fiber/middleware/auth"
+```
+
 ## Internal Auth (`RequireInternalAPIKey`)
 
 Use this middleware for service-to-service/private endpoints.
@@ -35,10 +41,15 @@ If any step fails, request is rejected with `401` (or custom `OnUnauthorized` ha
 ### Example
 
 ```go
-app.Use(auth.RequireInternalAPIKey(auth.InternalAPIKeyConfig{
+internalAuth, err := auth.RequireInternalAPIKey(auth.InternalAPIKeyConfig{
     ExpectedAPIKey:      os.Getenv("TOPOLOGY_PRIVATE_API_KEY"),
     AllowedInternalName: "topology-service",
-}))
+})
+if err != nil {
+    return err
+}
+
+app.Use(internalAuth)
 ```
 
 ## Public Auth (`RequirePublicAuth`)
@@ -46,8 +57,8 @@ app.Use(auth.RequireInternalAPIKey(auth.InternalAPIKeyConfig{
 Use this middleware for public endpoints with dynamic credential handling:
 
 1. If `X-API-KEY` is present, API-key validation is attempted first.
-2. If `Authorization: Bearer <token>` is present, bearer validation is attempted.
-3. If both are present, both are attempted in order until one succeeds.
+2. If API-key validation succeeds, request is allowed immediately and bearer validation is skipped.
+3. If API-key validation fails and `Authorization: Bearer <token>` is present, bearer validation is attempted.
 
 ### Validation Flow
 
@@ -64,6 +75,7 @@ If validation fails, request is rejected with `401` (or custom `OnValidationErro
 - `AuthorizationHeader` (default: `Authorization`)
 - `BearerPrefix` (default: `Bearer `)
 - `APIKeyHeader` (default: `X-API-KEY`)
+- `ValidationTimeout` (default: `5s` per validator call)
 - `Validator` (**required**)
 - `OnUnauthorized` (optional custom unauthorized writer)
 - `OnValidationError` (optional custom validator error mapper)
@@ -83,13 +95,20 @@ func (v authServiceValidator) ValidateAPIKey(ctx context.Context, apiKey string)
     return v.client.ValidateAPIKey(ctx, apiKey)
 }
 
-app.Use(auth.RequirePublicAuth(auth.PublicAuthConfig{
+publicAuth, err := auth.RequirePublicAuth(auth.PublicAuthConfig{
+    ValidationTimeout: 3 * time.Second,
     Validator: authServiceValidator{client: authClient},
-}))
+})
+if err != nil {
+    return err
+}
+
+app.Use(publicAuth)
 ```
 
 ## Important Notes
 
-- `RequireInternalAPIKey` panics if `ExpectedAPIKey` is empty.
-- `RequirePublicAuth` panics if `Validator` is nil.
+- `RequireInternalAPIKey` returns an error if `ExpectedAPIKey` is empty.
+- `RequirePublicAuth` returns an error if `Validator` is nil.
+- Validator methods receive a timeout-bound context derived from `fiber.Ctx.Context()`.
 - Raw `Authorization: <token>` is rejected; bearer auth requires `Authorization: Bearer <token>`.
