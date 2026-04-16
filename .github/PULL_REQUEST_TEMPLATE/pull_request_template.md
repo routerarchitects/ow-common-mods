@@ -14,7 +14,7 @@
 
 ### 🔗 Issues referenced (not closed)
 
-> *Use these for linking without closing*
+> *Link related issues that provide context but are NOT resolved by this PR (e.g., follow-ups, blockers, parent tasks). Clearly mention how this PR is connected.*
 
 * Related to #
 
@@ -44,19 +44,14 @@
 
 ## Impact
 
-> *Describe the impact on users, systems, or teams*
+> *Describe the impact on users, systems, or teams (e.g., UI changes, API behavior, performance, migrations). Mention if it's breaking, backward-compatible, or requires rollout steps.*
 
-*
-
-## Risks & Mitigation
-
-> *Highlight any risks and how they are mitigated*
 
 *
 
 ## Dependencies
 
-> *List related PRs, services, configs, or migrations*
+> *List any dependencies required for this PR to work (e.g., other PRs, backend/frontend changes, configs, database migrations). Include links and mention order of deployment if relevant.*
 
 *
 
@@ -64,13 +59,8 @@
 
 > *Ensure all applicable items are completed*
 
-* [ ] Code builds successfully
-* [ ] Tests added/updated (if applicable)
 * [ ] Documentation updated (if applicable)
 * [ ] Backward compatibility considered
-* [ ] No sensitive data exposed
-* [ ] Linting/formatting checks pass
-
 
 ## Notes for Reviewers
 
