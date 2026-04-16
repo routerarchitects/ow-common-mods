@@ -28,10 +28,6 @@ type InternalAPIKeyConfig struct {
 	// Defaults to X-API-KEY.
 	APIKeyHeader string
 
-	// AllowedInternalName restricts calls to a single internal caller name.
-	// When empty, only non-empty presence is required.
-	AllowedInternalName string
-
 	// ExpectedAPIKey is the static expected API key.
 	ExpectedAPIKey string
 
@@ -98,10 +94,6 @@ func RequireInternalAPIKey(cfg InternalAPIKeyConfig) (fiber.Handler, error) {
 	return func(c fiber.Ctx) error {
 		internalName := strings.TrimSpace(c.Get(internalHeader))
 		if internalName == "" {
-			return unauthorized(c)
-		}
-
-		if allowed := strings.TrimSpace(cfg.AllowedInternalName); allowed != "" && internalName != allowed {
 			return unauthorized(c)
 		}
 

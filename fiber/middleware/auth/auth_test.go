@@ -134,54 +134,6 @@ func TestRequireInternalAPIKey_RejectsWrongAPIKey(t *testing.T) {
 	}
 }
 
-func TestRequireInternalAPIKey_AllowedInternalName(t *testing.T) {
-	t.Parallel()
-
-	app := fiber.New()
-	app.Use(mustInternalAuth(t, InternalAPIKeyConfig{
-		ExpectedAPIKey:      "secret-key",
-		AllowedInternalName: "svc-a",
-	}))
-	app.Get("/", func(c fiber.Ctx) error { return c.SendString("ok") })
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("X-INTERNAL-NAME", "svc-b")
-	req.Header.Set("X-API-KEY", "secret-key")
-	resp, err := app.Test(req)
-	if err != nil {
-		t.Fatalf("app.Test() error = %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
-	}
-}
-
-func TestRequireInternalAPIKey_AllowsConfiguredInternalName(t *testing.T) {
-	t.Parallel()
-
-	app := fiber.New()
-	app.Use(mustInternalAuth(t, InternalAPIKeyConfig{
-		ExpectedAPIKey:      "secret-key",
-		AllowedInternalName: "svc-a",
-	}))
-	app.Get("/", func(c fiber.Ctx) error { return c.SendString("ok") })
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("X-INTERNAL-NAME", "svc-a")
-	req.Header.Set("X-API-KEY", "secret-key")
-	resp, err := app.Test(req)
-	if err != nil {
-		t.Fatalf("app.Test() error = %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
-	}
-}
-
 func TestRequireInternalAPIKey_ReturnsErrorWhenExpectedAPIKeyMissing(t *testing.T) {
 	t.Parallel()
 

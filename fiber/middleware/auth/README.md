@@ -5,13 +5,9 @@ This package provides reusable Fiber middlewares for:
 - Internal/private API key authentication
 - Public auth with either bearer token or API key authentication
 
-## Installation
+## Usage
 
-```bash
-go get github.com/routerarchitects/ow-common-mods/fiber/middleware
-```
-
-Import path used in code:
+Import this package in code:
 
 ```go
 import "github.com/routerarchitects/ow-common-mods/fiber/middleware/auth"
@@ -24,9 +20,8 @@ Use this middleware for service-to-service/private endpoints.
 ### Validation Flow
 
 1. Reads internal caller header (`X-INTERNAL-NAME` by default)
-2. Optionally validates caller name against `AllowedInternalName`
-3. Reads API key header (`X-API-KEY` by default)
-4. Compares with configured `ExpectedAPIKey` (constant-time comparison)
+2. Reads API key header (`X-API-KEY` by default)
+3. Compares with configured `ExpectedAPIKey` (constant-time comparison)
 
 If any step fails, request is rejected with `401` (or custom `OnUnauthorized` handler).
 
@@ -34,7 +29,6 @@ If any step fails, request is rejected with `401` (or custom `OnUnauthorized` ha
 
 - `InternalNameHeader` (default: `X-INTERNAL-NAME`)
 - `APIKeyHeader` (default: `X-API-KEY`)
-- `AllowedInternalName` (optional single allowed caller name)
 - `ExpectedAPIKey` (**required**)
 - `OnUnauthorized` (optional custom unauthorized writer)
 
@@ -42,8 +36,7 @@ If any step fails, request is rejected with `401` (or custom `OnUnauthorized` ha
 
 ```go
 internalAuth, err := auth.RequireInternalAPIKey(auth.InternalAPIKeyConfig{
-    ExpectedAPIKey:      os.Getenv("TOPOLOGY_PRIVATE_API_KEY"),
-    AllowedInternalName: "topology-service",
+    ExpectedAPIKey: os.Getenv("TOPOLOGY_PRIVATE_API_KEY"),
 })
 if err != nil {
     return err
