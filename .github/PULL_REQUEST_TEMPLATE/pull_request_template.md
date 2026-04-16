@@ -2,72 +2,67 @@
 
 ## Summary
 
-<!-- Briefly describe what this PR does -->
-
+> *Briefly describe what this PR does and its purpose.*
 
 ## Related Issues
 
 ### ✅ Issues closed by this PR
 
-<!-- Use keywords like Closes/Fixes/Resolves to auto-close on merge -->
+> *Use keywords like Closes/Fixes/Resolves to auto-close on merge*
 
 * Closes #
 
 ### 🔗 Issues referenced (not closed)
 
-<!-- Use these for linking without closing -->
+> *Use these for linking without closing*
 
 * Related to #
 
-
 ## What Changed
 
-<!-- List the main changes -->
+> *List the main changes introduced in this PR*
 
+*
 *
 
 ## Why
 
-<!-- Explain the motivation / problem this solves -->
+> *Explain the motivation or problem this PR solves*
 
 *
 
-
 ## How to Test
 
-<!-- Steps for reviewers to verify the changes -->
+> *Provide steps for reviewers to verify the changes*
 
 1.
 2.
 
-
 ## Screenshots / Logs (if applicable)
 
-<!-- Add screenshots, logs, or sample outputs if relevant -->
-
+> *Add screenshots, logs, or sample outputs if relevant*
 
 ## Impact
 
-<!-- Describe impact on users, systems, or teams -->
+> *Describe the impact on users, systems, or teams*
 
 *
-
 
 ## Risks & Mitigation
 
-<!-- Any risks introduced and how they are handled -->
+> *Highlight any risks and how they are mitigated*
 
 *
-
 
 ## Dependencies
 
-<!-- Link related PRs, services, configs, or migrations -->
+> *List related PRs, services, configs, or migrations*
 
 *
 
-
 ## Checklist
+
+> *Ensure all applicable items are completed*
 
 * [ ] Code builds successfully
 * [ ] Tests added/updated (if applicable)
@@ -79,6 +74,6 @@
 
 ## Notes for Reviewers
 
-<!-- Anything specific reviewers should focus on -->
+> *Mention anything specific reviewers should focus on*
 
 *
