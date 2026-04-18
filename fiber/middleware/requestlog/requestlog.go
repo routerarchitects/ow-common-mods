@@ -24,7 +24,7 @@ func RequestLogger(logger *slog.Logger) fiber.Handler {
 		c.Set(requestIDHeader, requestID)
 
 		start := time.Now()
-		logger.Info(
+		logger.Debug(
 			"request started",
 			"request_id", requestID,
 			"method", c.Method(),
@@ -47,7 +47,7 @@ func RequestLogger(logger *slog.Logger) fiber.Handler {
 			return err
 		}
 
-		logger.Info("request completed", args...)
+		logger.Debug("request completed", args...)
 		return nil
 	}
 }
