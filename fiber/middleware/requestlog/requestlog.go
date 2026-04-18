@@ -24,6 +24,9 @@ func RequestLogger(logger *slog.Logger) fiber.Handler {
 		requestID := resolveRequestID(c.Get(requestIDHeader))
 		c.Set(requestIDHeader, requestID)
 
+		// TODO Need to use logger module from ra-common-mods to
+		// propagate the request_id to the downstream consumers.
+
 		start := time.Now()
 		logger.Debug(
 			"request started",
