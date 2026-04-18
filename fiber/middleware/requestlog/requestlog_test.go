@@ -15,7 +15,7 @@ func TestRequestLogger_LogsSuccessRequest(t *testing.T) {
 	t.Parallel()
 
 	var out bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&out, nil))
+	logger := slog.New(slog.NewJSONHandler(&out, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	app := fiber.New()
 	app.Use(RequestLogger(logger))
@@ -35,8 +35,8 @@ func TestRequestLogger_LogsSuccessRequest(t *testing.T) {
 	}
 
 	logLine := out.String()
-	if !strings.Contains(logLine, `"level":"INFO"`) {
-		t.Fatalf("log does not contain INFO level: %s", logLine)
+	if !strings.Contains(logLine, `"level":"DEBUG"`) {
+		t.Fatalf("log does not contain DEBUG level: %s", logLine)
 	}
 	if !strings.Contains(logLine, `"method":"GET"`) {
 		t.Fatalf("log does not contain method: %s", logLine)
@@ -59,7 +59,7 @@ func TestRequestLogger_LogsErrorRequest(t *testing.T) {
 	t.Parallel()
 
 	var out bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&out, nil))
+	logger := slog.New(slog.NewJSONHandler(&out, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	app := fiber.New()
 	app.Use(RequestLogger(logger))
@@ -94,7 +94,7 @@ func TestRequestLogger_PropagatesIncomingRequestID(t *testing.T) {
 	t.Parallel()
 
 	var out bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&out, nil))
+	logger := slog.New(slog.NewJSONHandler(&out, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	app := fiber.New()
 	app.Use(RequestLogger(logger))
@@ -125,7 +125,7 @@ func TestRequestLogger_DoesNotLogQueryString(t *testing.T) {
 	t.Parallel()
 
 	var out bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&out, nil))
+	logger := slog.New(slog.NewJSONHandler(&out, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	app := fiber.New()
 	app.Use(RequestLogger(logger))
