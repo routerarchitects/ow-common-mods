@@ -19,15 +19,15 @@ Use this middleware for service-to-service/private endpoints.
 
 ### Validation Flow
 
-1. Reads internal caller header (`X-INTERNAL-NAME` by default)
-2. Reads API key header (`X-API-KEY` by default)
+1. Reads internal caller header (`X-INTERNAL-NAME` provides caller metadata)
+2. Reads API key header (`X-API-KEY` by default for authentication)
 3. Compares with configured `ExpectedAPIKey` (constant-time comparison)
 
 If any step fails, request is rejected with `401` (or custom `OnUnauthorized` handler).
 
 ### Config
 
-- `InternalNameHeader` (default: `X-INTERNAL-NAME`)
+- `InternalNameHeader` (default: `X-INTERNAL-NAME` for caller metadata)
 - `APIKeyHeader` (default: `X-API-KEY`)
 - `ExpectedAPIKey` (**required**)
 - `OnUnauthorized` (optional custom unauthorized writer)
