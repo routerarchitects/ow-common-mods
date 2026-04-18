@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/url"
 	"testing"
 
 	"github.com/routerarchitects/ow-common-mods/servicerpc/common"
@@ -32,11 +33,13 @@ func (m *mockResponse) Body() []byte    { return m.body }
 func (m *mockResponse) Close()          {}
 
 type mockRequester struct {
-	resp common.Response
-	err  error
+	resp    common.Response
+	err     error
+	lastURL string
 }
 
 func (m *mockRequester) Send(ctx context.Context, method, url string, headers map[string]string, body []byte) (common.Response, error) {
+	m.lastURL = url
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -93,7 +96,12 @@ func TestGetTimepoints_NotFound(t *testing.T) {
 		resp: &mockResponse{status: 404, body: []byte(`{}`)},
 	})
 
-	_, err := client.GetTimepoints(context.Background(), TimepointRequest{BoardID: "b1"})
+	_, err := client.GetTimepoints(context.Background(), TimepointRequest{
+		BoardID:    "b1",
+		FromDate:   1,
+		EndDate:    2,
+		MaxRecords: 10,
+	})
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -107,7 +115,12 @@ func TestGetTimepoints_InvalidJSON(t *testing.T) {
 		resp: &mockResponse{status: 200, body: []byte(`{not-json`)},
 	})
 
-	_, err := client.GetTimepoints(context.Background(), TimepointRequest{BoardID: "b1"})
+	_, err := client.GetTimepoints(context.Background(), TimepointRequest{
+		BoardID:    "b1",
+		FromDate:   1,
+		EndDate:    2,
+		MaxRecords: 10,
+	})
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -125,5 +138,122 @@ func TestGetDeviceInfo_RequestError(t *testing.T) {
 	}
 	if apperror.CodeOf(err) != apperror.CodeInternal {
 		t.Fatalf("expected internal error, got %s", apperror.CodeOf(err))
+	}
+}
+
+func TestGetTimepoints_PathAndQueryEscaping(t *testing.T) {
+	statsOnly := true
+	pointsOnly := false
+	pointStatsOnly := false
+	latestPerDevice := false
+
+	reqMock := &mockRequester{
+		resp: &mockResponse{status: 200, body: []byte(`{"points":[]}`)},
+	}
+	client := newClient(t, reqMock)
+
+	_, err := client.GetTimepoints(context.Background(), TimepointRequest{
+		BoardID:         " board /id?x=1 ",
+		FromDate:        11,
+		EndDate:         22,
+		MaxRecords:      33,
+		StatsOnly:       &statsOnly,
+		PointsOnly:      &pointsOnly,
+		PointStatsOnly:  &pointStatsOnly,
+		LatestPerDevice: &latestPerDevice,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	parsed, err := url.Parse(reqMock.lastURL)
+	if err != nil {
+		t.Fatalf("failed to parse requested URL: %v", err)
+	}
+
+	expectedPath := "/api/v1/board/" + url.PathEscape("board /id?x=1") + "/timepoints"
+	if parsed.EscapedPath() != expectedPath {
+		t.Fatalf("expected escaped path %q, got %q", expectedPath, parsed.EscapedPath())
+	}
+
+	query := parsed.Query()
+	if got := query.Get("fromDate"); got != "11" {
+		t.Fatalf("fromDate mismatch: %q", got)
+	}
+	if got := query.Get("endDate"); got != "22" {
+		t.Fatalf("endDate mismatch: %q", got)
+	}
+	if got := query.Get("maxRecords"); got != "33" {
+		t.Fatalf("maxRecords mismatch: %q", got)
+	}
+	if got := query.Get("statsOnly"); got != "true" {
+		t.Fatalf("statsOnly mismatch: %q", got)
+	}
+	if got := query.Get("pointsOnly"); got != "false" {
+		t.Fatalf("pointsOnly mismatch: %q", got)
+	}
+	if got := query.Get("pointStatsOnly"); got != "false" {
+		t.Fatalf("pointStatsOnly mismatch: %q", got)
+	}
+	if got := query.Get("LatestPerDevice"); got != "false" {
+		t.Fatalf("LatestPerDevice mismatch: %q", got)
+	}
+}
+
+func TestGetTimepoints_Validation(t *testing.T) {
+	client := newClient(t, &mockRequester{
+		resp: &mockResponse{status: 200, body: []byte(`{"points":[]}`)},
+	})
+
+	testCases := []struct {
+		name string
+		req  TimepointRequest
+	}{
+		{
+			name: "missing board id",
+			req: TimepointRequest{
+				FromDate:   1,
+				EndDate:    2,
+				MaxRecords: 10,
+			},
+		},
+		{
+			name: "missing from date",
+			req: TimepointRequest{
+				BoardID:    "b1",
+				EndDate:    2,
+				MaxRecords: 10,
+			},
+		},
+		{
+			name: "end before from",
+			req: TimepointRequest{
+				BoardID:    "b1",
+				FromDate:   3,
+				EndDate:    2,
+				MaxRecords: 10,
+			},
+		},
+		{
+			name: "max records invalid",
+			req: TimepointRequest{
+				BoardID:    "b1",
+				FromDate:   1,
+				EndDate:    2,
+				MaxRecords: 0,
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := client.GetTimepoints(context.Background(), tc.req)
+			if err == nil {
+				t.Fatalf("expected error")
+			}
+			if got := apperror.CodeOf(err); got != apperror.CodeInvalidInput {
+				t.Fatalf("expected invalid input, got %s", got)
+			}
+		})
 	}
 }
