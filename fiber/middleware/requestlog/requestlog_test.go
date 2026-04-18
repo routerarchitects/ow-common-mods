@@ -2,6 +2,7 @@ package requestlog
 
 import (
 	"bytes"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -85,8 +86,43 @@ func TestRequestLogger_LogsErrorRequest(t *testing.T) {
 	if !strings.Contains(logLine, `"error":"Unauthorized"`) {
 		t.Fatalf("log does not contain error: %s", logLine)
 	}
+	if !strings.Contains(logLine, `"status":401`) {
+		t.Fatalf("log does not contain status 401: %s", logLine)
+	}
 	if !strings.Contains(logLine, `"request_id":"`) {
 		t.Fatalf("log does not contain request_id: %s", logLine)
+	}
+}
+
+func TestRequestLogger_LogsStatusOnGenericError(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&out, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	app := fiber.New()
+	app.Use(RequestLogger(logger))
+	app.Get("/generic-error", func(c fiber.Ctx) error {
+		return errors.New("boom")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/generic-error", nil)
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("app.Test() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusInternalServerError)
+	}
+
+	logLine := out.String()
+	if !strings.Contains(logLine, `"level":"ERROR"`) {
+		t.Fatalf("log does not contain ERROR level: %s", logLine)
+	}
+	if !strings.Contains(logLine, `"status":500`) {
+		t.Fatalf("log does not contain status 500: %s", logLine)
 	}
 }
 

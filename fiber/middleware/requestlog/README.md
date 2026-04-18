@@ -50,6 +50,13 @@ It also ensures request-id correlation:
 ## Example
 
 ```go
+import (
+	"log/slog"
+	"os"
+
+	"github.com/routerarchitects/ow-common-mods/fiber/middleware/requestlog"
+)
+
 logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 app := fiber.New()

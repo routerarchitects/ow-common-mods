@@ -3,6 +3,7 @@ package requestlog
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -34,10 +35,14 @@ func RequestLogger(logger *slog.Logger) fiber.Handler {
 
 		err := c.Next()
 		duration := time.Since(start)
+		status := c.Response().StatusCode()
+		if err != nil {
+			status = statusFromError(err, status)
+		}
 
 		args := []any{
 			"request_id", requestID,
-			"status", c.Response().StatusCode(),
+			"status", status,
 			"latency_ms", duration.Milliseconds(),
 		}
 
@@ -50,6 +55,20 @@ func RequestLogger(logger *slog.Logger) fiber.Handler {
 		logger.Debug("request completed", args...)
 		return nil
 	}
+}
+
+func statusFromError(err error, currentStatus int) int {
+	// Keep status explicitly set by downstream handlers.
+	if currentStatus >= 400 {
+		return currentStatus
+	}
+
+	var fiberErr *fiber.Error
+	if errors.As(err, &fiberErr) {
+		return fiberErr.Code
+	}
+
+	return fiber.StatusInternalServerError
 }
 
 func resolveRequestID(headerValue string) string {
