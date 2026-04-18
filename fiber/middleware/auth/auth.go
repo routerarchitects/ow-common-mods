@@ -4,9 +4,9 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v3"
 )
@@ -16,6 +16,7 @@ const (
 	defaultAPIKeyHeader        = "X-API-KEY"
 	defaultAuthorizationHeader = "Authorization"
 	defaultBearerPrefix        = "Bearer "
+	defaultValidationTimeout   = 5 * time.Second
 )
 
 // InternalAPIKeyConfig configures private API-key middleware.
@@ -26,10 +27,6 @@ type InternalAPIKeyConfig struct {
 	// APIKeyHeader is the header that carries the caller's API key.
 	// Defaults to X-API-KEY.
 	APIKeyHeader string
-
-	// AllowedInternalName restricts calls to a single internal caller name.
-	// When empty, only non-empty presence is required.
-	AllowedInternalName string
 
 	// ExpectedAPIKey is the static expected API key.
 	ExpectedAPIKey string
@@ -42,7 +39,11 @@ type InternalAPIKeyConfig struct {
 // PublicAuthValidator validates public auth credentials.
 // Implementations can call another auth service.
 type PublicAuthValidator interface {
+	// ValidateToken validates a bearer token.
+	// The context passed here is derived from fiber.Ctx.Context() and wrapped with ValidationTimeout.
 	ValidateToken(ctx context.Context, token string) error
+	// ValidateAPIKey validates an API key.
+	// The context passed here is derived from fiber.Ctx.Context() and wrapped with ValidationTimeout.
 	ValidateAPIKey(ctx context.Context, apiKey string) error
 }
 
@@ -57,6 +58,9 @@ type PublicAuthConfig struct {
 	// APIKeyHeader is the header that carries API key credentials.
 	// Defaults to X-API-KEY.
 	APIKeyHeader string
+	// ValidationTimeout bounds each credential validation call.
+	// Defaults to 5 seconds when unset or invalid.
+	ValidationTimeout time.Duration
 	// Validator validates incoming credentials.
 	Validator PublicAuthValidator
 	// OnUnauthorized customizes unauthorized responses.
@@ -67,13 +71,18 @@ type PublicAuthConfig struct {
 	OnValidationError func(c fiber.Ctx, err error) error
 }
 
+var (
+	ErrMissingExpectedAPIKey = errors.New("auth: ExpectedAPIKey is required")
+	ErrMissingValidator      = errors.New("auth: Validator is required")
+)
+
 // RequireInternalAPIKey validates internal calls using internal-name and API key headers.
-func RequireInternalAPIKey(cfg InternalAPIKeyConfig) fiber.Handler {
+func RequireInternalAPIKey(cfg InternalAPIKeyConfig) (fiber.Handler, error) {
 	internalHeader := firstNonEmpty(cfg.InternalNameHeader, defaultInternalNameHeader)
 	apiKeyHeader := firstNonEmpty(cfg.APIKeyHeader, defaultAPIKeyHeader)
 	expected := strings.TrimSpace(cfg.ExpectedAPIKey)
 	if expected == "" {
-		panic(fmt.Errorf("auth: ExpectedAPIKey is required"))
+		return nil, ErrMissingExpectedAPIKey
 	}
 	unauthorized := cfg.OnUnauthorized
 	if unauthorized == nil {
@@ -88,10 +97,6 @@ func RequireInternalAPIKey(cfg InternalAPIKeyConfig) fiber.Handler {
 			return unauthorized(c)
 		}
 
-		if allowed := strings.TrimSpace(cfg.AllowedInternalName); allowed != "" && internalName != allowed {
-			return unauthorized(c)
-		}
-
 		got := strings.TrimSpace(c.Get(apiKeyHeader))
 		if got == "" {
 			return unauthorized(c)
@@ -102,17 +107,21 @@ func RequireInternalAPIKey(cfg InternalAPIKeyConfig) fiber.Handler {
 		}
 
 		return c.Next()
-	}
+	}, nil
 }
 
 // RequirePublicAuth validates external/public requests using configured auth method.
-func RequirePublicAuth(cfg PublicAuthConfig) fiber.Handler {
+func RequirePublicAuth(cfg PublicAuthConfig) (fiber.Handler, error) {
 	authorizationHeader := firstNonEmpty(cfg.AuthorizationHeader, defaultAuthorizationHeader)
 	bearerPrefix := firstNonEmpty(cfg.BearerPrefix, defaultBearerPrefix)
 	apiKeyHeader := firstNonEmpty(cfg.APIKeyHeader, defaultAPIKeyHeader)
+	validationTimeout := cfg.ValidationTimeout
+	if validationTimeout <= 0 {
+		validationTimeout = defaultValidationTimeout
+	}
 	validator := cfg.Validator
 	if validator == nil {
-		panic(fmt.Errorf("auth: Validator is required"))
+		return nil, ErrMissingValidator
 	}
 	unauthorized := cfg.OnUnauthorized
 	if unauthorized == nil {
@@ -126,7 +135,10 @@ func RequirePublicAuth(cfg PublicAuthConfig) fiber.Handler {
 
 		apiKey := strings.TrimSpace(c.Get(apiKeyHeader))
 		if apiKey != "" {
-			if err := validator.ValidateAPIKey(c.Context(), apiKey); err == nil {
+			validationCtx, cancel := context.WithTimeout(c.Context(), validationTimeout)
+			err := validator.ValidateAPIKey(validationCtx, apiKey)
+			cancel()
+			if err == nil {
 				return c.Next()
 			} else {
 				validationErr = errors.Join(validationErr, err)
@@ -137,7 +149,10 @@ func RequirePublicAuth(cfg PublicAuthConfig) fiber.Handler {
 		if authHeader != "" {
 			token, ok := extractBearerToken(authHeader, bearerPrefix)
 			if ok && token != "" {
-				if err := validator.ValidateToken(c.Context(), token); err == nil {
+				validationCtx, cancel := context.WithTimeout(c.Context(), validationTimeout)
+				err := validator.ValidateToken(validationCtx, token)
+				cancel()
+				if err == nil {
 					return c.Next()
 				} else {
 					validationErr = errors.Join(validationErr, err)
@@ -149,7 +164,7 @@ func RequirePublicAuth(cfg PublicAuthConfig) fiber.Handler {
 			return cfg.OnValidationError(c, validationErr)
 		}
 		return unauthorized(c)
-	}
+	}, nil
 }
 
 func secureEqual(a, b string) bool {
