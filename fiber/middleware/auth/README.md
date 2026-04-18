@@ -19,7 +19,7 @@ Use this middleware for service-to-service/private endpoints.
 
 ### Validation Flow
 
-1. Reads internal caller header (`X-INTERNAL-NAME` provides caller metadata)
+1. Reads internal caller header (`X-INTERNAL-NAME` must be non empty, provides caller metadata only. It is not used in auth)
 2. Reads API key header (`X-API-KEY` by default for authentication)
 3. Compares with configured `ExpectedAPIKey` (constant-time comparison)
 
