@@ -3,6 +3,7 @@ package common
 import (
 	"context"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -206,6 +207,13 @@ func (s *ServiceRPCBase) Send(ctx context.Context, method string, endpoint strin
 	url := strings.TrimSuffix(service.PrivateEndPoint, "/") + endpoint
 	resp, sendErr := s.requester.Send(ctx, method, url, headers, rawBody)
 	if sendErr != nil {
+		if errors.Is(sendErr, context.Canceled) || errors.Is(sendErr, context.DeadlineExceeded) {
+			return nil, sendErr
+		}
+		var appErr *apperror.Error
+		if errors.As(sendErr, &appErr) {
+			return nil, sendErr
+		}
 		return nil, apperror.Wrap(apperror.CodeInternal, fmt.Sprintf("%s request failed", serviceName), sendErr)
 	}
 

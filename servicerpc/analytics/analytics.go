@@ -30,13 +30,22 @@ func NewAnalyticsClient(deps *common.ServiceRPCBase) *AnalyticsClient {
 //
 // Caller must pass ctx with timeout/deadline.
 func (v *AnalyticsClient) GetTimepoints(ctx context.Context, req TimepointRequest) ([]TimepointsData, error) {
-	fullURL := "/api/v1/board/" + req.BoardID + "/timepoints?"
+	if err := validateTimepointRequest(req); err != nil {
+		return nil, err
+	}
 
-	fullURL += "fromDate=" + strconv.FormatUint(req.FromDate, 10) + "&"
-	fullURL += "endDate=" + strconv.FormatUint(req.EndDate, 10) + "&"
-	fullURL += "maxRecords=" + strconv.Itoa(req.MaxRecords) + "&"
+	endpoint := "/api/v1/board/" + url.PathEscape(strings.TrimSpace(req.BoardID)) + "/timepoints"
 
-	fullURL += "statsOnly=false&pointsOnly=true&pointStatsOnly=true&LatestPerDevice=true"
+	q := url.Values{}
+	q.Set("fromDate", strconv.FormatUint(req.FromDate, 10))
+	q.Set("endDate", strconv.FormatUint(req.EndDate, 10))
+	q.Set("maxRecords", strconv.Itoa(req.MaxRecords))
+	q.Set("statsOnly", strconv.FormatBool(boolOrDefault(req.StatsOnly, false)))
+	q.Set("pointsOnly", strconv.FormatBool(boolOrDefault(req.PointsOnly, true)))
+	q.Set("pointStatsOnly", strconv.FormatBool(boolOrDefault(req.PointStatsOnly, true)))
+	q.Set("LatestPerDevice", strconv.FormatBool(boolOrDefault(req.LatestPerDevice, true)))
+
+	fullURL := endpoint + "?" + q.Encode()
 
 	v.deps.Logger().With("url", fullURL).Info("getting timepoints")
 
@@ -80,6 +89,13 @@ func (v *AnalyticsClient) GetTimepoints(ctx context.Context, req TimepointReques
 	).Info("received timepoints response")
 
 	return timepoints, nil
+}
+
+func boolOrDefault(v *bool, defaultValue bool) bool {
+	if v == nil {
+		return defaultValue
+	}
+	return *v
 }
 
 // GetDeviceInfo fetches device details for a board.

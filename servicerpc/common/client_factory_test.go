@@ -171,3 +171,98 @@ func TestSend_WrapsRequesterError(t *testing.T) {
 		t.Fatalf("expected internal code, got %s", apperror.CodeOf(sendErr))
 	}
 }
+
+func TestSend_PreservesCancellationAndDeadlineErrors(t *testing.T) {
+	testCases := []struct {
+		name       string
+		reqErr     error
+		expectIs   error
+		expectCode apperror.Code
+	}{
+		{
+			name:       "context canceled",
+			reqErr:     context.Canceled,
+			expectIs:   context.Canceled,
+			expectCode: apperror.CodeUnknown,
+		},
+		{
+			name:       "deadline exceeded",
+			reqErr:     context.DeadlineExceeded,
+			expectIs:   context.DeadlineExceeded,
+			expectCode: apperror.CodeUnknown,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			base, err := NewServiceRPCBaseWithDeps(
+				&mockResolver{instance: &ServiceInstance{Key: "k", PrivateEndPoint: "http://svc"}},
+				&mockRequester{err: tc.reqErr},
+				"caller",
+				slog.Default(),
+			)
+			if err != nil {
+				t.Fatalf("unexpected constructor error: %v", err)
+			}
+
+			_, sendErr := base.Send(context.Background(), "GET", "/x", nil, "owanalytics")
+			if sendErr == nil {
+				t.Fatalf("expected error")
+			}
+			if !errors.Is(sendErr, tc.expectIs) {
+				t.Fatalf("expected errors.Is(..., %v) to be true, got %v", tc.expectIs, sendErr)
+			}
+			if got := apperror.CodeOf(sendErr); got != tc.expectCode {
+				t.Fatalf("expected code %s, got %s", tc.expectCode, got)
+			}
+		})
+	}
+}
+
+func TestSend_PreservesAppErrorFromRequester(t *testing.T) {
+	upstreamErr := apperror.New(apperror.CodeForbidden, "upstream denied")
+	base, err := NewServiceRPCBaseWithDeps(
+		&mockResolver{instance: &ServiceInstance{Key: "k", PrivateEndPoint: "http://svc"}},
+		&mockRequester{err: upstreamErr},
+		"caller",
+		slog.Default(),
+	)
+	if err != nil {
+		t.Fatalf("unexpected constructor error: %v", err)
+	}
+
+	_, sendErr := base.Send(context.Background(), "GET", "/x", nil, "owanalytics")
+	if sendErr == nil {
+		t.Fatalf("expected error")
+	}
+	if !errors.Is(sendErr, upstreamErr) {
+		t.Fatalf("expected upstream error to be preserved")
+	}
+	if got := apperror.CodeOf(sendErr); got != apperror.CodeForbidden {
+		t.Fatalf("expected forbidden code, got %s", got)
+	}
+}
+
+func TestSend_PreservesUnknownAppErrorFromRequester(t *testing.T) {
+	upstreamErr := apperror.New(apperror.CodeUnknown, "upstream unknown")
+	base, err := NewServiceRPCBaseWithDeps(
+		&mockResolver{instance: &ServiceInstance{Key: "k", PrivateEndPoint: "http://svc"}},
+		&mockRequester{err: upstreamErr},
+		"caller",
+		slog.Default(),
+	)
+	if err != nil {
+		t.Fatalf("unexpected constructor error: %v", err)
+	}
+
+	_, sendErr := base.Send(context.Background(), "GET", "/x", nil, "owanalytics")
+	if sendErr == nil {
+		t.Fatalf("expected error")
+	}
+	if !errors.Is(sendErr, upstreamErr) {
+		t.Fatalf("expected upstream app error to be preserved")
+	}
+	if got := apperror.CodeOf(sendErr); got != apperror.CodeUnknown {
+		t.Fatalf("expected unknown code, got %s", got)
+	}
+}
