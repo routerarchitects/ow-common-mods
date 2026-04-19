@@ -208,7 +208,7 @@ func (s *ServiceRPCBase) Send(ctx context.Context, method string, endpoint strin
 	resp, sendErr := s.requester.Send(ctx, method, url, headers, rawBody)
 	if sendErr != nil {
 		if errors.Is(sendErr, context.Canceled) || errors.Is(sendErr, context.DeadlineExceeded) {
-			return nil, sendErr
+			return nil, apperror.Wrap(apperror.CodeTimeout, fmt.Sprintf("%s request failed", serviceName), sendErr)
 		}
 		var appErr *apperror.Error
 		if errors.As(sendErr, &appErr) {

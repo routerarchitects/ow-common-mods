@@ -52,7 +52,7 @@ func (v *AnalyticsClient) GetTimepoints(ctx context.Context, req TimepointReques
 	start := time.Now()
 	resp, err := v.deps.Send(ctx, http.MethodGet, fullURL, nil, serviceName)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, "failed to get timepoints", err)
+		return nil, err
 	}
 	defer resp.Close()
 
@@ -104,7 +104,7 @@ func boolOrDefault(v *bool, defaultValue bool) bool {
 func (v *AnalyticsClient) GetDeviceInfo(ctx context.Context, boardID string) ([]DeviceInfo, error) {
 	resp, err := v.deps.Send(ctx, http.MethodGet, "/api/v1/board/"+boardID+"/devices", nil, serviceName)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, "failed to get device info", err)
+		return nil, err
 	}
 	defer resp.Close()
 
