@@ -101,6 +101,7 @@ func (s *store) removeByTypeID(serviceType string, id int64) {
 		delete(s.byTypeID, serviceType)
 		delete(s.rrCursor, serviceType)
 	}
+
 }
 
 func (s *store) sweepExpired(now time.Time, expiryTimeout time.Duration) {
