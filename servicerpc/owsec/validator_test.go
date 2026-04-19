@@ -77,10 +77,10 @@ func TestValidateToken_PrimaryEndpointSuccess(t *testing.T) {
 	}
 }
 
-func TestValidateToken_FallbackSuccess(t *testing.T) {
+func TestValidateToken_SecondEndpointSuccess(t *testing.T) {
 	client := newSecurityClient(t, &scriptedRequester{
 		calls: []reqCall{
-			{matchURL: "/validateSubToken", err: errors.New("primary failed")},
+			{matchURL: "/validateSubToken", resp: &mockResponse{status: 404}},
 			{matchURL: "/validateToken", resp: &mockResponse{status: 200}},
 		},
 	})
@@ -90,10 +90,10 @@ func TestValidateToken_FallbackSuccess(t *testing.T) {
 	}
 }
 
-func TestValidateToken_FallbackTransportFailure(t *testing.T) {
+func TestValidateToken_SecondEndpointTransportFailure(t *testing.T) {
 	client := newSecurityClient(t, &scriptedRequester{
 		calls: []reqCall{
-			{matchURL: "/validateSubToken", err: errors.New("primary failed")},
+			{matchURL: "/validateSubToken", resp: &mockResponse{status: 404}},
 			{matchURL: "/validateToken", err: errors.New("fallback failed")},
 		},
 	})
@@ -102,15 +102,15 @@ func TestValidateToken_FallbackTransportFailure(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error")
 	}
-	if apperror.CodeOf(err) != apperror.CodeUnauthorized {
-		t.Fatalf("expected unauthorized, got %s", apperror.CodeOf(err))
+	if apperror.CodeOf(err) != apperror.CodeInternal {
+		t.Fatalf("expected internal, got %s", apperror.CodeOf(err))
 	}
 }
 
-func TestValidateToken_FallbackNon200(t *testing.T) {
+func TestValidateToken_BothEndpointsRejectToken(t *testing.T) {
 	client := newSecurityClient(t, &scriptedRequester{
 		calls: []reqCall{
-			{matchURL: "/validateSubToken", err: errors.New("primary failed")},
+			{matchURL: "/validateSubToken", resp: &mockResponse{status: 404}},
 			{matchURL: "/validateToken", resp: &mockResponse{status: 401}},
 		},
 	})
@@ -121,5 +121,70 @@ func TestValidateToken_FallbackNon200(t *testing.T) {
 	}
 	if apperror.CodeOf(err) != apperror.CodeUnauthorized {
 		t.Fatalf("expected unauthorized, got %s", apperror.CodeOf(err))
+	}
+}
+
+func TestValidateToken_MixedEndpointFailureReturnsInternal(t *testing.T) {
+	client := newSecurityClient(t, &scriptedRequester{
+		calls: []reqCall{
+			{matchURL: "/validateSubToken", resp: &mockResponse{status: 500}},
+			{matchURL: "/validateToken", resp: &mockResponse{status: 401}},
+		},
+	})
+
+	err := client.ValidateToken(context.Background(), "abc")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if got := apperror.CodeOf(err); got != apperror.CodeInternal {
+		t.Fatalf("expected internal, got %s", got)
+	}
+}
+
+func TestValidateToken_ContextCanceledReturnsTimeout(t *testing.T) {
+	req := &scriptedRequester{
+		calls: []reqCall{
+			{matchURL: "/validateSubToken", err: context.Canceled},
+			{matchURL: "/validateToken", resp: &mockResponse{status: 200}},
+		},
+	}
+	client := newSecurityClient(t, req)
+
+	err := client.ValidateToken(context.Background(), "abc")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context canceled error, got %v", err)
+	}
+	if got := apperror.CodeOf(err); got != apperror.CodeTimeout {
+		t.Fatalf("expected timeout code, got %s", got)
+	}
+	if req.callIdx != 1 {
+		t.Fatalf("expected second endpoint not to run, call count=%d", req.callIdx)
+	}
+}
+
+func TestValidateToken_DeadlineExceededReturnsTimeout(t *testing.T) {
+	req := &scriptedRequester{
+		calls: []reqCall{
+			{matchURL: "/validateSubToken", err: context.DeadlineExceeded},
+			{matchURL: "/validateToken", resp: &mockResponse{status: 200}},
+		},
+	}
+	client := newSecurityClient(t, req)
+
+	err := client.ValidateToken(context.Background(), "abc")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded error, got %v", err)
+	}
+	if got := apperror.CodeOf(err); got != apperror.CodeTimeout {
+		t.Fatalf("expected timeout code, got %s", got)
+	}
+	if req.callIdx != 1 {
+		t.Fatalf("expected second endpoint not to run, call count=%d", req.callIdx)
 	}
 }

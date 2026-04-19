@@ -24,3 +24,16 @@ func validateTimepointRequest(req TimepointRequest) error {
 	}
 	return nil
 }
+
+func validateWifiClientHistoryRequest(boardID string, limit, offset int) error {
+	if strings.TrimSpace(boardID) == "" {
+		return apperror.New(apperror.CodeInvalidInput, "boardId is required")
+	}
+	if limit <= 0 {
+		return apperror.New(apperror.CodeInvalidInput, "limit must be greater than 0")
+	}
+	if offset < 0 {
+		return apperror.New(apperror.CodeInvalidInput, "offset must be greater than or equal to 0")
+	}
+	return nil
+}

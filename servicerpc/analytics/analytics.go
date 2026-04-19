@@ -138,15 +138,20 @@ func (v *AnalyticsClient) GetDeviceInfo(ctx context.Context, boardID string) ([]
 //
 // Caller must pass ctx with timeout/deadline.
 func (v *AnalyticsClient) GetWifiClientHistoryMACs(ctx context.Context, boardID string, limit, offset int) ([]string, error) {
-	fullURL := "/api/v1/wifiClientHistory" +
-		"?macsOnly=true" +
-		"&boardId=" + url.QueryEscape(strings.TrimSpace(boardID)) +
-		"&limit=" + strconv.Itoa(limit) +
-		"&offset=" + strconv.Itoa(offset)
+	if err := validateWifiClientHistoryRequest(boardID, limit, offset); err != nil {
+		return nil, err
+	}
+
+	q := url.Values{}
+	q.Set("macsOnly", "true")
+	q.Set("boardId", strings.TrimSpace(boardID))
+	q.Set("limit", strconv.Itoa(limit))
+	q.Set("offset", strconv.Itoa(offset))
+	fullURL := "/api/v1/wifiClientHistory?" + q.Encode()
 
 	resp, err := v.deps.Send(ctx, http.MethodGet, fullURL, nil, serviceName)
 	if err != nil {
-		return nil, apperror.Wrap(apperror.CodeInternal, "failed to get wifi client history MACs", err)
+		return nil, err
 	}
 	defer resp.Close()
 

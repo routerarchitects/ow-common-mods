@@ -255,6 +255,51 @@ func TestGetWifiClientHistoryMACs_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestGetWifiClientHistoryMACs_Validation(t *testing.T) {
+	client := newClient(t, &mockRequester{
+		resp: &mockResponse{status: 200, body: []byte(`{"entries":[]}`)},
+	})
+
+	testCases := []struct {
+		name    string
+		boardID string
+		limit   int
+		offset  int
+	}{
+		{name: "missing board id", boardID: "   ", limit: 10, offset: 0},
+		{name: "non positive limit", boardID: "b1", limit: 0, offset: 0},
+		{name: "negative limit", boardID: "b1", limit: -1, offset: 0},
+		{name: "negative offset", boardID: "b1", limit: 10, offset: -1},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := client.GetWifiClientHistoryMACs(context.Background(), tc.boardID, tc.limit, tc.offset)
+			if err == nil {
+				t.Fatalf("expected error")
+			}
+			if got := apperror.CodeOf(err); got != apperror.CodeInvalidInput {
+				t.Fatalf("expected invalid input, got %s", got)
+			}
+		})
+	}
+}
+
+func TestGetWifiClientHistoryMACs_PreservesTimeoutError(t *testing.T) {
+	client := newClient(t, &mockRequester{err: context.DeadlineExceeded})
+
+	_, err := client.GetWifiClientHistoryMACs(context.Background(), "b1", 10, 0)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded, got %v", err)
+	}
+	if got := apperror.CodeOf(err); got != apperror.CodeTimeout {
+		t.Fatalf("expected timeout, got %s", got)
+	}
+}
+
 func TestGetTimepoints_PathAndQueryEscaping(t *testing.T) {
 	statsOnly := true
 	pointsOnly := false

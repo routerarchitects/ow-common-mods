@@ -69,6 +69,17 @@ _ = timepoints
 
 ### Security (`servicerpc/owsec`)
 - `ValidateToken(ctx, rawToken)`
+  - validates by trying both owsec APIs in sequence:
+  - `GET /api/v1/validateSubToken?token=...`
+  - `GET /api/v1/validateToken?token=...`
+  - returns success if either endpoint returns `200`
+  - preserves transport/context errors from request execution
+
+### Analytics input notes
+- `GetWifiClientHistoryMACs(ctx, boardID, limit, offset)` requires:
+  - non-empty `boardID`
+  - `limit > 0`
+  - `offset >= 0`
 
 ### Common transport (`servicerpc/common`)
 - `NewServiceRPCBase(...)`
@@ -114,4 +125,4 @@ Recommended unit tests:
 - resolver failures (`not found`, `invalid resolver`)
 - requester failures and status-code mapping
 - context timeout/cancellation propagation from caller
-- fallback path behavior in `SecurityClient.ValidateToken`
+- dual-endpoint behavior in `SecurityClient.ValidateToken`
