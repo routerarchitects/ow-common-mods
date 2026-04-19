@@ -77,6 +77,26 @@ func TestValidateToken_PrimaryEndpointSuccess(t *testing.T) {
 	}
 }
 
+func TestValidateToken_EmptyTokenReturnsUnauthorized(t *testing.T) {
+	req := &scriptedRequester{
+		calls: []reqCall{
+			{matchURL: "/validateSubToken", resp: &mockResponse{status: 200}},
+		},
+	}
+	client := newSecurityClient(t, req)
+
+	err := client.ValidateToken(context.Background(), "   ")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if got := apperror.CodeOf(err); got != apperror.CodeUnauthorized {
+		t.Fatalf("expected unauthorized, got %s", got)
+	}
+	if req.callIdx != 0 {
+		t.Fatalf("expected no endpoint call, call count=%d", req.callIdx)
+	}
+}
+
 func TestValidateToken_SecondEndpointSuccess(t *testing.T) {
 	client := newSecurityClient(t, &scriptedRequester{
 		calls: []reqCall{

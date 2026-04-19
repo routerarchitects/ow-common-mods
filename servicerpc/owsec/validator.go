@@ -29,6 +29,9 @@ func NewSecurityClient(deps *common.ServiceRPCBase) *SecurityClient {
 // Caller must pass ctx with timeout/deadline.
 func (s *SecurityClient) ValidateToken(ctx context.Context, rawToken string) error {
 	token := strings.TrimSpace(rawToken)
+	if token == "" {
+		return apperror.New(apperror.CodeUnauthorized, "unauthorized")
+	}
 
 	subResp, subErr := s.deps.Send(ctx, http.MethodGet, "/api/v1/validateSubToken?token="+url.QueryEscape(token), nil, serviceName)
 	if subResp != nil {
