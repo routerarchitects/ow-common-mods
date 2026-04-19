@@ -102,7 +102,13 @@ func boolOrDefault(v *bool, defaultValue bool) bool {
 //
 // Caller must pass ctx with timeout/deadline.
 func (v *AnalyticsClient) GetDeviceInfo(ctx context.Context, boardID string) ([]DeviceInfo, error) {
-	resp, err := v.deps.Send(ctx, http.MethodGet, "/api/v1/board/"+boardID+"/devices", nil, serviceName)
+	trimmedBoardID := strings.TrimSpace(boardID)
+	if trimmedBoardID == "" {
+		return nil, apperror.New(apperror.CodeInvalidInput, "boardId is required")
+	}
+
+	endpoint := "/api/v1/board/" + url.PathEscape(trimmedBoardID) + "/devices"
+	resp, err := v.deps.Send(ctx, http.MethodGet, endpoint, nil, serviceName)
 	if err != nil {
 		return nil, err
 	}

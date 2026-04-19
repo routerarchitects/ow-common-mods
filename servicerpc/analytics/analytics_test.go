@@ -141,6 +141,120 @@ func TestGetDeviceInfo_RequestError(t *testing.T) {
 	}
 }
 
+func TestGetDeviceInfo_PathEscaping(t *testing.T) {
+	reqMock := &mockRequester{
+		resp: &mockResponse{status: 200, body: []byte(`{"devices":[]}`)},
+	}
+	client := newClient(t, reqMock)
+
+	_, err := client.GetDeviceInfo(context.Background(), " board /id?x=1 ")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	parsed, err := url.Parse(reqMock.lastURL)
+	if err != nil {
+		t.Fatalf("failed to parse requested URL: %v", err)
+	}
+
+	expectedPath := "/api/v1/board/" + url.PathEscape("board /id?x=1") + "/devices"
+	if parsed.EscapedPath() != expectedPath {
+		t.Fatalf("expected escaped path %q, got %q", expectedPath, parsed.EscapedPath())
+	}
+}
+
+func TestGetDeviceInfo_Validation(t *testing.T) {
+	client := newClient(t, &mockRequester{
+		resp: &mockResponse{status: 200, body: []byte(`{"devices":[]}`)},
+	})
+
+	_, err := client.GetDeviceInfo(context.Background(), "   ")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if got := apperror.CodeOf(err); got != apperror.CodeInvalidInput {
+		t.Fatalf("expected invalid input, got %s", got)
+	}
+}
+
+func TestGetWifiClientHistoryMACs_SuccessAndEscaping(t *testing.T) {
+	reqMock := &mockRequester{
+		resp: &mockResponse{status: 200, body: []byte(`{"entries":["aa:bb","cc:dd"]}`)},
+	}
+	client := newClient(t, reqMock)
+
+	entries, err := client.GetWifiClientHistoryMACs(context.Background(), " board /id?x=1 ", 50, 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries))
+	}
+
+	parsed, err := url.Parse(reqMock.lastURL)
+	if err != nil {
+		t.Fatalf("failed to parse requested URL: %v", err)
+	}
+	if parsed.Path != "/api/v1/wifiClientHistory" {
+		t.Fatalf("unexpected path: %s", parsed.Path)
+	}
+	query := parsed.Query()
+	if got := query.Get("macsOnly"); got != "true" {
+		t.Fatalf("macsOnly mismatch: %q", got)
+	}
+	if got := query.Get("boardId"); got != "board /id?x=1" {
+		t.Fatalf("boardId mismatch: %q", got)
+	}
+	if got := query.Get("limit"); got != "50" {
+		t.Fatalf("limit mismatch: %q", got)
+	}
+	if got := query.Get("offset"); got != "10" {
+		t.Fatalf("offset mismatch: %q", got)
+	}
+}
+
+func TestGetWifiClientHistoryMACs_NotFound(t *testing.T) {
+	client := newClient(t, &mockRequester{
+		resp: &mockResponse{status: 404, body: []byte(`{}`)},
+	})
+
+	_, err := client.GetWifiClientHistoryMACs(context.Background(), "b1", 10, 0)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if got := apperror.CodeOf(err); got != apperror.CodeNotFound {
+		t.Fatalf("expected not found, got %s", got)
+	}
+}
+
+func TestGetWifiClientHistoryMACs_NonOK(t *testing.T) {
+	client := newClient(t, &mockRequester{
+		resp: &mockResponse{status: 500, body: []byte(`{}`)},
+	})
+
+	_, err := client.GetWifiClientHistoryMACs(context.Background(), "b1", 10, 0)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if got := apperror.CodeOf(err); got != apperror.CodeInternal {
+		t.Fatalf("expected internal, got %s", got)
+	}
+}
+
+func TestGetWifiClientHistoryMACs_InvalidJSON(t *testing.T) {
+	client := newClient(t, &mockRequester{
+		resp: &mockResponse{status: 200, body: []byte(`{not-json`)},
+	})
+
+	_, err := client.GetWifiClientHistoryMACs(context.Background(), "b1", 10, 0)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if got := apperror.CodeOf(err); got != apperror.CodeInternal {
+		t.Fatalf("expected internal, got %s", got)
+	}
+}
+
 func TestGetTimepoints_PathAndQueryEscaping(t *testing.T) {
 	statsOnly := true
 	pointsOnly := false

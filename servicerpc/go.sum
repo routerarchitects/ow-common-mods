@@ -60,6 +60,10 @@ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZb
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475 h1:N/ElC8H3+5XpJzTSTfLsJV/mx9Q9g7kxmchpfZyxgzM=
 github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475/go.mod h1:bCqnVzQkZxMG4s8nGwiZ5l3QUCyqpo9Y+/ZMZ9VjZe4=
+github.com/routerarchitects/ow-common-mods/servicediscovery v0.2.0 h1:u/dWm7tICCovDQCSGRVQTEDegL62TOviPpp7T8aLLOY=
+github.com/routerarchitects/ow-common-mods/servicediscovery v0.2.0/go.mod h1:kE7xqdKuCMX6uE9jTnf/PWpSNZe0aVM5zQqNJ2NSPOc=
+github.com/routerarchitects/ra-common-mods/apperror v0.2.0 h1:/otTh1Z1VTT0eSdKU0uoPCoquhbRm/lyr36QI09V2L0=
+github.com/routerarchitects/ra-common-mods/apperror v0.2.0/go.mod h1:tCSnjL1XnUDhxt4iIQsPOeecEyDhtpBbUyj+aMAkF2A=
 github.com/routerarchitects/ra-common-mods/buildinfo v0.1.0 h1:S/KlzzEInnAYv0YsNqYlhnBp/rPWwo/oJfAKKF80peU=
 github.com/routerarchitects/ra-common-mods/buildinfo v0.1.0/go.mod h1:gNpS0HygvKPuizwgDbJwc6nV70kTBKGk/8BeMY2aho4=
 github.com/routerarchitects/ra-common-mods/kafka v0.1.0 h1:dagSG886NTBlsAYEebrLUH8lRMyb06B1kBqRQdPNrnA=

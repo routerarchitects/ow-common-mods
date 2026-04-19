@@ -5,6 +5,10 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -183,13 +187,13 @@ func TestSend_PreservesCancellationAndDeadlineErrors(t *testing.T) {
 			name:       "context canceled",
 			reqErr:     context.Canceled,
 			expectIs:   context.Canceled,
-			expectCode: apperror.CodeUnknown,
+			expectCode: apperror.CodeTimeout,
 		},
 		{
 			name:       "deadline exceeded",
 			reqErr:     context.DeadlineExceeded,
 			expectIs:   context.DeadlineExceeded,
-			expectCode: apperror.CodeUnknown,
+			expectCode: apperror.CodeTimeout,
 		},
 	}
 
@@ -264,5 +268,105 @@ func TestSend_PreservesUnknownAppErrorFromRequester(t *testing.T) {
 	}
 	if got := apperror.CodeOf(sendErr); got != apperror.CodeUnknown {
 		t.Fatalf("expected unknown code, got %s", got)
+	}
+}
+
+func TestNewDiscoveryResolver_ResolveValidation(t *testing.T) {
+	resolver := NewDiscoveryResolver(nil)
+	_, err := resolver.Resolve("svc")
+	if err == nil {
+		t.Fatalf("expected error for nil discovery")
+	}
+	if got := apperror.CodeOf(err); got != apperror.CodeInternal {
+		t.Fatalf("expected internal code, got %s", got)
+	}
+}
+
+func TestNewFiberRequester_Validation(t *testing.T) {
+	if _, err := NewFiberRequester("/path/that/does/not/exist.pem"); err == nil {
+		t.Fatalf("expected error for missing pem file")
+	}
+
+	tempDir := t.TempDir()
+	invalidPemPath := filepath.Join(tempDir, "invalid.pem")
+	if err := os.WriteFile(invalidPemPath, []byte("not-a-pem"), 0o600); err != nil {
+		t.Fatalf("failed to write invalid pem: %v", err)
+	}
+	if _, err := NewFiberRequester(invalidPemPath); err == nil {
+		t.Fatalf("expected error for invalid pem file")
+	}
+}
+
+func TestFiberRequester_Send(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if got := r.Header.Get("X-Test-Header"); got != "ok" {
+			t.Errorf("expected X-Test-Header=ok, got %q", got)
+		}
+		if r.URL.Path != "/endpoint" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("failed to read request body: %v", err)
+		}
+		if string(body) != `{"hello":"world"}` {
+			t.Errorf("unexpected request body: %s", string(body))
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	requester, err := NewFiberRequester("")
+	if err != nil {
+		t.Fatalf("unexpected requester constructor error: %v", err)
+	}
+
+	resp, sendErr := requester.Send(
+		context.Background(),
+		http.MethodPost,
+		srv.URL+"/endpoint",
+		map[string]string{"X-Test-Header": "ok"},
+		[]byte(`{"hello":"world"}`),
+	)
+	if sendErr != nil {
+		t.Fatalf("unexpected send error: %v", sendErr)
+	}
+	defer resp.Close()
+
+	if resp.StatusCode() != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d", resp.StatusCode())
+	}
+	if string(resp.Body()) != `{"ok":true}` {
+		t.Fatalf("unexpected response body: %s", string(resp.Body()))
+	}
+}
+
+func TestNewServiceRPCBase(t *testing.T) {
+	if _, err := NewServiceRPCBase(nil, "/path/that/does/not/exist.pem", "caller", slog.Default()); err == nil {
+		t.Fatalf("expected tls path error")
+	}
+
+	base, err := NewServiceRPCBase(nil, "", "caller", nil)
+	if err != nil {
+		t.Fatalf("unexpected constructor error: %v", err)
+	}
+	if base == nil {
+		t.Fatalf("expected base instance")
+	}
+}
+
+func TestLogger_DefaultFallback(t *testing.T) {
+	var nilBase *ServiceRPCBase
+	if nilBase.Logger() == nil {
+		t.Fatalf("expected default logger for nil receiver")
+	}
+
+	emptyBase := &ServiceRPCBase{}
+	if emptyBase.Logger() == nil {
+		t.Fatalf("expected default logger for empty base")
 	}
 }
