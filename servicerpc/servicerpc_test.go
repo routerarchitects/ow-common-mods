@@ -3,10 +3,12 @@ package servicerpc
 import (
 	"log/slog"
 	"testing"
+
+	"github.com/routerarchitects/ow-common-mods/servicediscovery"
 )
 
 func TestNewServiceRpc_Validation(t *testing.T) {
-	_, err := NewServiceRpc(nil, ServiceRpcConfig{
+	_, err := NewServiceRpc(&servicediscovery.Discovery{}, ServiceRpcConfig{
 		TLSRootCA:    "",
 		InternalName: "   ",
 	}, slog.Default())
@@ -16,7 +18,7 @@ func TestNewServiceRpc_Validation(t *testing.T) {
 }
 
 func TestNewServiceRpc_TLSPathError(t *testing.T) {
-	_, err := NewServiceRpc(nil, ServiceRpcConfig{
+	_, err := NewServiceRpc(&servicediscovery.Discovery{}, ServiceRpcConfig{
 		TLSRootCA:    "/path/that/does/not/exist.pem",
 		InternalName: "caller",
 	}, slog.Default())
@@ -26,7 +28,7 @@ func TestNewServiceRpc_TLSPathError(t *testing.T) {
 }
 
 func TestNewServiceRpc_Wiring(t *testing.T) {
-	rpc, err := NewServiceRpc(nil, ServiceRpcConfig{
+	rpc, err := NewServiceRpc(&servicediscovery.Discovery{}, ServiceRpcConfig{
 		InternalName: "caller",
 	}, nil)
 	if err != nil {

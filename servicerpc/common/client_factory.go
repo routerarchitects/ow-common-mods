@@ -120,6 +120,9 @@ func NewServiceRPCBase(
 	internalName string,
 	logger *slog.Logger,
 ) (*ServiceRPCBase, error) {
+	if discovery == nil {
+		return nil, apperror.New(apperror.CodeInvalidInput, "discovery is required.")
+	}
 	requester, err := NewFiberRequester(tlsRootCA)
 	if err != nil {
 		return nil, err

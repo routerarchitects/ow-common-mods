@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/routerarchitects/ow-common-mods/servicediscovery"
 	"github.com/routerarchitects/ra-common-mods/apperror"
 )
 
@@ -347,10 +348,10 @@ func TestFiberRequester_Send(t *testing.T) {
 
 func TestNewServiceRPCBase(t *testing.T) {
 	if _, err := NewServiceRPCBase(nil, "/path/that/does/not/exist.pem", "caller", slog.Default()); err == nil {
-		t.Fatalf("expected tls path error")
+		t.Fatalf("expected discovery error")
 	}
 
-	base, err := NewServiceRPCBase(nil, "", "caller", nil)
+	base, err := NewServiceRPCBase(&servicediscovery.Discovery{}, "", "caller", nil)
 	if err != nil {
 		t.Fatalf("unexpected constructor error: %v", err)
 	}
