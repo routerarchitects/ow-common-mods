@@ -73,7 +73,7 @@ _ = timepoints
   - `GET /api/v1/validateSubToken?token=...`
   - `GET /api/v1/validateToken?token=...`
   - returns success if either endpoint returns `200`
-  - preserves transport/context errors from request execution
+  - if any error occurs in `validateSubToken`, `validateToken` is not attempted
 
 ### Analytics input notes
 - `GetWifiClientHistoryMACs(ctx, boardID, limit, offset)` requires:
