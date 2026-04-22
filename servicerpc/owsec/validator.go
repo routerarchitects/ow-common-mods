@@ -17,10 +17,13 @@ type SecurityClient struct {
 	deps *common.ServiceRPCBase
 }
 
-func NewSecurityClient(deps *common.ServiceRPCBase) *SecurityClient {
+func NewSecurityClient(deps *common.ServiceRPCBase) (*SecurityClient, error) {
+	if deps == nil {
+		return nil, apperror.New(apperror.CodeInternal, "dependencies cannot be nil")
+	}
 	return &SecurityClient{
 		deps: deps,
-	}
+	}, nil
 }
 
 // ValidateToken validates token by checking both subscription-token and

@@ -20,10 +20,13 @@ type AnalyticsClient struct {
 	deps *common.ServiceRPCBase
 }
 
-func NewAnalyticsClient(deps *common.ServiceRPCBase) *AnalyticsClient {
+func NewAnalyticsClient(deps *common.ServiceRPCBase) (*AnalyticsClient, error) {
+	if deps == nil {
+		return nil, apperror.New(apperror.CodeInternal, "dependencies cannot be nil")
+	}
 	return &AnalyticsClient{
 		deps: deps,
-	}
+	}, nil
 }
 
 // GetTimepoints fetches analytics timepoints.
@@ -31,6 +34,7 @@ func NewAnalyticsClient(deps *common.ServiceRPCBase) *AnalyticsClient {
 // Caller must pass ctx with timeout/deadline.
 func (v *AnalyticsClient) GetTimepoints(ctx context.Context, req TimepointRequest) ([]TimepointsData, error) {
 	if err := validateTimepointRequest(req); err != nil {
+		v.deps.Logger().Error("\n invalid timepoint request : %v\n", err)
 		return nil, err
 	}
 
@@ -52,6 +56,7 @@ func (v *AnalyticsClient) GetTimepoints(ctx context.Context, req TimepointReques
 	start := time.Now()
 	resp, err := v.deps.Send(ctx, http.MethodGet, fullURL, nil, serviceName)
 	if err != nil {
+		v.deps.Logger().Error("\n resp of send function  %v\n", err)
 		return nil, err
 	}
 	defer resp.Close()
@@ -62,6 +67,7 @@ func (v *AnalyticsClient) GetTimepoints(ctx context.Context, req TimepointReques
 	}
 
 	if resp.StatusCode() != http.StatusOK {
+		v.deps.Logger().Error("\n resp status code not ok  %d\n", resp.StatusCode())
 		return nil, apperror.Wrap(apperror.CodeInternal, fmt.Sprintf("failed to get Timepoints: %d", resp.StatusCode()), nil)
 	}
 
@@ -71,6 +77,7 @@ func (v *AnalyticsClient) GetTimepoints(ctx context.Context, req TimepointReques
 
 	var tpResp timepointResponse
 	if err := json.Unmarshal(resp.Body(), &tpResp); err != nil {
+		v.deps.Logger().Error("\n failed to unmarshal response for timepoints : %v\n", err)
 		return nil, apperror.Wrap(apperror.CodeInternal, "failed to parse timepoints response", err)
 	}
 
@@ -81,7 +88,6 @@ func (v *AnalyticsClient) GetTimepoints(ctx context.Context, req TimepointReques
 		}
 		timepoints = append(timepoints, bucket...)
 	}
-
 	v.deps.Logger().With(
 		"records", len(timepoints),
 		"status", resp.StatusCode(),
@@ -104,21 +110,25 @@ func boolOrDefault(v *bool, defaultValue bool) bool {
 func (v *AnalyticsClient) GetDeviceInfo(ctx context.Context, boardID string) ([]DeviceInfo, error) {
 	trimmedBoardID := strings.TrimSpace(boardID)
 	if trimmedBoardID == "" {
+		v.deps.Logger().Error("\n boardID is missing \n")
 		return nil, apperror.New(apperror.CodeInvalidInput, "boardId is required")
 	}
 
 	endpoint := "/api/v1/board/" + url.PathEscape(trimmedBoardID) + "/devices"
 	resp, err := v.deps.Send(ctx, http.MethodGet, endpoint, nil, serviceName)
 	if err != nil {
+		v.deps.Logger().Error("\n failed to send request for device info : %v\n", err)
 		return nil, err
 	}
 	defer resp.Close()
 
 	if resp.StatusCode() == http.StatusNotFound {
+		v.deps.Logger().Error("\n device info not found for board ID : %s\n", trimmedBoardID)
 		return nil, apperror.New(apperror.CodeNotFound, "resource does not exist")
 	}
 
 	if resp.StatusCode() != http.StatusOK {
+		v.deps.Logger().Error("\n failed to get device info for board ID : %s, status code: %d\n", trimmedBoardID, resp.StatusCode())
 		return nil, apperror.Wrap(apperror.CodeInternal, fmt.Sprintf("failed to get device info : %d", resp.StatusCode()), nil)
 	}
 
@@ -128,6 +138,7 @@ func (v *AnalyticsClient) GetDeviceInfo(ctx context.Context, boardID string) ([]
 
 	var payload deviceInfoResponse
 	if err := json.Unmarshal(resp.Body(), &payload); err != nil {
+		v.deps.Logger().Error("\n failed to parse device info response : %v\n", err)
 		return nil, apperror.Wrap(apperror.CodeInternal, "failed to parse device info response", err)
 	}
 
@@ -139,6 +150,7 @@ func (v *AnalyticsClient) GetDeviceInfo(ctx context.Context, boardID string) ([]
 // Caller must pass ctx with timeout/deadline.
 func (v *AnalyticsClient) GetWifiClientHistoryMACs(ctx context.Context, boardID string, limit, offset int) ([]string, error) {
 	if err := validateWifiClientHistoryRequest(boardID, limit, offset); err != nil {
+		v.deps.Logger().Error("\n invalid wifi client history request : %v\n", err)
 		return nil, err
 	}
 
@@ -151,15 +163,18 @@ func (v *AnalyticsClient) GetWifiClientHistoryMACs(ctx context.Context, boardID 
 
 	resp, err := v.deps.Send(ctx, http.MethodGet, fullURL, nil, serviceName)
 	if err != nil {
+		v.deps.Logger().Error("\n failed to send request for wifi client history MACs : %v\n", err)
 		return nil, err
 	}
 	defer resp.Close()
 
 	if resp.StatusCode() == http.StatusNotFound {
+		v.deps.Logger().Error("\n wifi client history MACs not found for board ID : %s\n", strings.TrimSpace(boardID))
 		return nil, apperror.New(apperror.CodeNotFound, "resource does not exist")
 	}
 
 	if resp.StatusCode() != http.StatusOK {
+		v.deps.Logger().Error("\n failed to get wifi client history MACs for board ID : %s, status code: %d\n", strings.TrimSpace(boardID), resp.StatusCode())
 		return nil, apperror.Wrap(apperror.CodeInternal, fmt.Sprintf("failed to get wifi client history MACs: %d", resp.StatusCode()), nil)
 	}
 
@@ -168,6 +183,7 @@ func (v *AnalyticsClient) GetWifiClientHistoryMACs(ctx context.Context, boardID 
 	}
 	var out wifiClientHistoryResponse
 	if err := json.Unmarshal(resp.Body(), &out); err != nil {
+		v.deps.Logger().Error("\n failed to parse wifi client history response : %v\n", err)
 		return nil, apperror.Wrap(apperror.CodeInternal, "failed to parse wifiClientHistory response", err)
 	}
 	return out.Entries, nil

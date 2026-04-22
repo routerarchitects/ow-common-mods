@@ -51,7 +51,7 @@ func (s *scriptedRequester) Send(ctx context.Context, method, url string, header
 	return cur.resp, cur.err
 }
 
-func newSecurityClient(t *testing.T, requester common.Requester) *SecurityClient {
+func newSecurityClient(t *testing.T, requester common.Requester) (*SecurityClient, error) {
 	t.Helper()
 	base, err := common.NewServiceRPCBaseWithDeps(
 		&mockResolver{instance: &common.ServiceInstance{Key: "k", PrivateEndPoint: "http://owsec.local"}},
@@ -66,11 +66,14 @@ func newSecurityClient(t *testing.T, requester common.Requester) *SecurityClient
 }
 
 func TestValidateToken_PrimaryEndpointSuccess(t *testing.T) {
-	client := newSecurityClient(t, &scriptedRequester{
+	client, err := newSecurityClient(t, &scriptedRequester{
 		calls: []reqCall{
 			{matchURL: "/validateSubToken", resp: &mockResponse{status: 200}},
 		},
 	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if err := client.ValidateToken(context.Background(), "abc"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -83,9 +86,12 @@ func TestValidateToken_EmptyTokenReturnsUnauthorized(t *testing.T) {
 			{matchURL: "/validateSubToken", resp: &mockResponse{status: 200}},
 		},
 	}
-	client := newSecurityClient(t, req)
+	client, err := newSecurityClient(t, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	err := client.ValidateToken(context.Background(), "   ")
+	err = client.ValidateToken(context.Background(), "   ")
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -98,27 +104,33 @@ func TestValidateToken_EmptyTokenReturnsUnauthorized(t *testing.T) {
 }
 
 func TestValidateToken_SecondEndpointSuccess(t *testing.T) {
-	client := newSecurityClient(t, &scriptedRequester{
+	client, err := newSecurityClient(t, &scriptedRequester{
 		calls: []reqCall{
 			{matchURL: "/validateSubToken", resp: &mockResponse{status: 404}},
 			{matchURL: "/validateToken", resp: &mockResponse{status: 200}},
 		},
 	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	if err := client.ValidateToken(context.Background(), "abc"); err != nil {
+	if err = client.ValidateToken(context.Background(), "abc"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func TestValidateToken_SecondEndpointTransportFailure(t *testing.T) {
-	client := newSecurityClient(t, &scriptedRequester{
+	client, err := newSecurityClient(t, &scriptedRequester{
 		calls: []reqCall{
 			{matchURL: "/validateSubToken", resp: &mockResponse{status: 404}},
 			{matchURL: "/validateToken", err: errors.New("fallback failed")},
 		},
 	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	err := client.ValidateToken(context.Background(), "abc")
+	err = client.ValidateToken(context.Background(), "abc")
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -128,14 +140,17 @@ func TestValidateToken_SecondEndpointTransportFailure(t *testing.T) {
 }
 
 func TestValidateToken_BothEndpointsRejectToken(t *testing.T) {
-	client := newSecurityClient(t, &scriptedRequester{
+	client, err := newSecurityClient(t, &scriptedRequester{
 		calls: []reqCall{
 			{matchURL: "/validateSubToken", resp: &mockResponse{status: 404}},
 			{matchURL: "/validateToken", resp: &mockResponse{status: 401}},
 		},
 	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	err := client.ValidateToken(context.Background(), "abc")
+	err = client.ValidateToken(context.Background(), "abc")
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -145,14 +160,14 @@ func TestValidateToken_BothEndpointsRejectToken(t *testing.T) {
 }
 
 func TestValidateToken_MixedEndpointFailureReturnsInternal(t *testing.T) {
-	client := newSecurityClient(t, &scriptedRequester{
+	client, err := newSecurityClient(t, &scriptedRequester{
 		calls: []reqCall{
 			{matchURL: "/validateSubToken", resp: &mockResponse{status: 500}},
 			{matchURL: "/validateToken", resp: &mockResponse{status: 401}},
 		},
 	})
 
-	err := client.ValidateToken(context.Background(), "abc")
+	err = client.ValidateToken(context.Background(), "abc")
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -168,9 +183,12 @@ func TestValidateToken_ContextCanceledReturnsTimeout(t *testing.T) {
 			{matchURL: "/validateToken", resp: &mockResponse{status: 200}},
 		},
 	}
-	client := newSecurityClient(t, req)
+	client, err := newSecurityClient(t, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	err := client.ValidateToken(context.Background(), "abc")
+	err = client.ValidateToken(context.Background(), "abc")
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -192,9 +210,12 @@ func TestValidateToken_DeadlineExceededReturnsTimeout(t *testing.T) {
 			{matchURL: "/validateToken", resp: &mockResponse{status: 200}},
 		},
 	}
-	client := newSecurityClient(t, req)
+	client, err := newSecurityClient(t, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	err := client.ValidateToken(context.Background(), "abc")
+	err = client.ValidateToken(context.Background(), "abc")
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -210,13 +231,16 @@ func TestValidateToken_DeadlineExceededReturnsTimeout(t *testing.T) {
 }
 
 func TestValidateAPIKey_Success(t *testing.T) {
-	client := newSecurityClient(t, &scriptedRequester{
+	client, err := newSecurityClient(t, &scriptedRequester{
 		calls: []reqCall{
 			{matchURL: "/validateAPIKey", resp: &mockResponse{status: 200}},
 		},
 	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	if err := client.ValidateAPIKey(context.Background(), "abc"); err != nil {
+	if err = client.ValidateAPIKey(context.Background(), "abc"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -227,9 +251,12 @@ func TestValidateAPIKey_EmptyAPIKeyReturnsUnauthorized(t *testing.T) {
 			{matchURL: "/validateAPIKey", resp: &mockResponse{status: 200}},
 		},
 	}
-	client := newSecurityClient(t, req)
+	client, err := newSecurityClient(t, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	err := client.ValidateAPIKey(context.Background(), "   ")
+	err = client.ValidateAPIKey(context.Background(), "   ")
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -247,9 +274,12 @@ func TestValidateAPIKey_TransportFailureIsPreserved(t *testing.T) {
 			{matchURL: "/validateAPIKey", err: context.Canceled},
 		},
 	}
-	client := newSecurityClient(t, req)
+	client, err := newSecurityClient(t, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	err := client.ValidateAPIKey(context.Background(), "abc")
+	err = client.ValidateAPIKey(context.Background(), "abc")
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -267,9 +297,11 @@ func TestValidateAPIKey_DeadlineExceededReturnsTimeout(t *testing.T) {
 			{matchURL: "/validateAPIKey", err: context.DeadlineExceeded},
 		},
 	}
-	client := newSecurityClient(t, req)
-
-	err := client.ValidateAPIKey(context.Background(), "abc")
+	client, err := newSecurityClient(t, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	err = client.ValidateAPIKey(context.Background(), "abc")
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -282,13 +314,16 @@ func TestValidateAPIKey_DeadlineExceededReturnsTimeout(t *testing.T) {
 }
 
 func TestValidateAPIKey_RejectStatusReturnsUnauthorized(t *testing.T) {
-	client := newSecurityClient(t, &scriptedRequester{
+	client, err := newSecurityClient(t, &scriptedRequester{
 		calls: []reqCall{
 			{matchURL: "/validateAPIKey", resp: &mockResponse{status: 401}},
 		},
 	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	err := client.ValidateAPIKey(context.Background(), "abc")
+	err = client.ValidateAPIKey(context.Background(), "abc")
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -298,13 +333,16 @@ func TestValidateAPIKey_RejectStatusReturnsUnauthorized(t *testing.T) {
 }
 
 func TestValidateAPIKey_UnexpectedStatusReturnsInternal(t *testing.T) {
-	client := newSecurityClient(t, &scriptedRequester{
+	client, err := newSecurityClient(t, &scriptedRequester{
 		calls: []reqCall{
 			{matchURL: "/validateAPIKey", resp: &mockResponse{status: 500}},
 		},
 	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	err := client.ValidateAPIKey(context.Background(), "abc")
+	err = client.ValidateAPIKey(context.Background(), "abc")
 	if err == nil {
 		t.Fatalf("expected error")
 	}
