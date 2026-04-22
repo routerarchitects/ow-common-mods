@@ -268,7 +268,7 @@ func TestValidateAPIKey_EmptyAPIKeyReturnsUnauthorized(t *testing.T) {
 	}
 }
 
-func TestValidateAPIKey_TransportFailureIsPreserved(t *testing.T) {
+func TestValidateAPIKey_ContextCanceledReturnsTimeout(t *testing.T) {
 	req := &scriptedRequester{
 		calls: []reqCall{
 			{matchURL: "/validateAPIKey", err: context.Canceled},
@@ -288,6 +288,30 @@ func TestValidateAPIKey_TransportFailureIsPreserved(t *testing.T) {
 	}
 	if got := apperror.CodeOf(err); got != apperror.CodeTimeout {
 		t.Fatalf("expected timeout code, got %s", got)
+	}
+}
+
+func TestValidateAPIKey_GenericTransportFailureIsPreserved(t *testing.T) {
+	transportErr := errors.New("connection refused")
+	req := &scriptedRequester{
+		calls: []reqCall{
+			{matchURL: "/validateAPIKey", err: transportErr},
+		},
+	}
+	client, err := newSecurityClient(t, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	err = client.ValidateAPIKey(context.Background(), "abc")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !errors.Is(err, transportErr) {
+		t.Fatalf("expected transport error to be preserved, got %v", err)
+	}
+	if got := apperror.CodeOf(err); got != apperror.CodeInternal {
+		t.Fatalf("expected internal code, got %s", got)
 	}
 }
 
