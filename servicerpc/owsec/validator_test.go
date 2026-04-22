@@ -208,3 +208,107 @@ func TestValidateToken_DeadlineExceededReturnsTimeout(t *testing.T) {
 		t.Fatalf("expected second endpoint not to run, call count=%d", req.callIdx)
 	}
 }
+
+func TestValidateAPIKey_Success(t *testing.T) {
+	client := newSecurityClient(t, &scriptedRequester{
+		calls: []reqCall{
+			{matchURL: "/validateAPIKey", resp: &mockResponse{status: 200}},
+		},
+	})
+
+	if err := client.ValidateAPIKey(context.Background(), "abc"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateAPIKey_EmptyAPIKeyReturnsUnauthorized(t *testing.T) {
+	req := &scriptedRequester{
+		calls: []reqCall{
+			{matchURL: "/validateAPIKey", resp: &mockResponse{status: 200}},
+		},
+	}
+	client := newSecurityClient(t, req)
+
+	err := client.ValidateAPIKey(context.Background(), "   ")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if got := apperror.CodeOf(err); got != apperror.CodeUnauthorized {
+		t.Fatalf("expected unauthorized, got %s", got)
+	}
+	if req.callIdx != 0 {
+		t.Fatalf("expected no endpoint call, call count=%d", req.callIdx)
+	}
+}
+
+func TestValidateAPIKey_TransportFailureIsPreserved(t *testing.T) {
+	req := &scriptedRequester{
+		calls: []reqCall{
+			{matchURL: "/validateAPIKey", err: context.Canceled},
+		},
+	}
+	client := newSecurityClient(t, req)
+
+	err := client.ValidateAPIKey(context.Background(), "abc")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context canceled error, got %v", err)
+	}
+	if got := apperror.CodeOf(err); got != apperror.CodeTimeout {
+		t.Fatalf("expected timeout code, got %s", got)
+	}
+}
+
+func TestValidateAPIKey_DeadlineExceededReturnsTimeout(t *testing.T) {
+	req := &scriptedRequester{
+		calls: []reqCall{
+			{matchURL: "/validateAPIKey", err: context.DeadlineExceeded},
+		},
+	}
+	client := newSecurityClient(t, req)
+
+	err := client.ValidateAPIKey(context.Background(), "abc")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded error, got %v", err)
+	}
+	if got := apperror.CodeOf(err); got != apperror.CodeTimeout {
+		t.Fatalf("expected timeout code, got %s", got)
+	}
+}
+
+func TestValidateAPIKey_RejectStatusReturnsUnauthorized(t *testing.T) {
+	client := newSecurityClient(t, &scriptedRequester{
+		calls: []reqCall{
+			{matchURL: "/validateAPIKey", resp: &mockResponse{status: 401}},
+		},
+	})
+
+	err := client.ValidateAPIKey(context.Background(), "abc")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if got := apperror.CodeOf(err); got != apperror.CodeUnauthorized {
+		t.Fatalf("expected unauthorized, got %s", got)
+	}
+}
+
+func TestValidateAPIKey_UnexpectedStatusReturnsInternal(t *testing.T) {
+	client := newSecurityClient(t, &scriptedRequester{
+		calls: []reqCall{
+			{matchURL: "/validateAPIKey", resp: &mockResponse{status: 500}},
+		},
+	})
+
+	err := client.ValidateAPIKey(context.Background(), "abc")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if got := apperror.CodeOf(err); got != apperror.CodeInternal {
+		t.Fatalf("expected internal, got %s", got)
+	}
+}
