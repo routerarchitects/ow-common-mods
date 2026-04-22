@@ -46,7 +46,7 @@ func (m *mockRequester) Send(ctx context.Context, method, url string, headers ma
 	return m.resp, nil
 }
 
-func newClient(t *testing.T, requester common.Requester) *AnalyticsClient {
+func newClient(t *testing.T, requester common.Requester) (*AnalyticsClient, error) {
 	t.Helper()
 	base, err := common.NewServiceRPCBaseWithDeps(
 		&mockResolver{instance: &common.ServiceInstance{Key: "k", PrivateEndPoint: "http://owanalytics.local"}},
@@ -61,7 +61,7 @@ func newClient(t *testing.T, requester common.Requester) *AnalyticsClient {
 }
 
 func TestGetTimepoints_Success(t *testing.T) {
-	client := newClient(t, &mockRequester{
+	client, err := newClient(t, &mockRequester{
 		resp: &mockResponse{
 			status: 200,
 			body: []byte(`{
@@ -76,6 +76,9 @@ func TestGetTimepoints_Success(t *testing.T) {
 			}`),
 		},
 	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	out, err := client.GetTimepoints(context.Background(), TimepointRequest{
 		BoardID:    "b1",
@@ -92,11 +95,14 @@ func TestGetTimepoints_Success(t *testing.T) {
 }
 
 func TestGetTimepoints_NotFound(t *testing.T) {
-	client := newClient(t, &mockRequester{
+	client, err := newClient(t, &mockRequester{
 		resp: &mockResponse{status: 404, body: []byte(`{}`)},
 	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	_, err := client.GetTimepoints(context.Background(), TimepointRequest{
+	_, err = client.GetTimepoints(context.Background(), TimepointRequest{
 		BoardID:    "b1",
 		FromDate:   1,
 		EndDate:    2,
@@ -111,11 +117,11 @@ func TestGetTimepoints_NotFound(t *testing.T) {
 }
 
 func TestGetTimepoints_InvalidJSON(t *testing.T) {
-	client := newClient(t, &mockRequester{
+	client, err := newClient(t, &mockRequester{
 		resp: &mockResponse{status: 200, body: []byte(`{not-json`)},
 	})
 
-	_, err := client.GetTimepoints(context.Background(), TimepointRequest{
+	_, err = client.GetTimepoints(context.Background(), TimepointRequest{
 		BoardID:    "b1",
 		FromDate:   1,
 		EndDate:    2,
@@ -130,9 +136,12 @@ func TestGetTimepoints_InvalidJSON(t *testing.T) {
 }
 
 func TestGetDeviceInfo_RequestError(t *testing.T) {
-	client := newClient(t, &mockRequester{err: errors.New("network down")})
+	client, err := newClient(t, &mockRequester{err: errors.New("network down")})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	_, err := client.GetDeviceInfo(context.Background(), "b1")
+	_, err = client.GetDeviceInfo(context.Background(), "b1")
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -145,9 +154,12 @@ func TestGetDeviceInfo_PathEscaping(t *testing.T) {
 	reqMock := &mockRequester{
 		resp: &mockResponse{status: 200, body: []byte(`{"devices":[]}`)},
 	}
-	client := newClient(t, reqMock)
+	client, err := newClient(t, reqMock)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	_, err := client.GetDeviceInfo(context.Background(), " board /id?x=1 ")
+	_, err = client.GetDeviceInfo(context.Background(), " board /id?x=1 ")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -164,11 +176,14 @@ func TestGetDeviceInfo_PathEscaping(t *testing.T) {
 }
 
 func TestGetDeviceInfo_Validation(t *testing.T) {
-	client := newClient(t, &mockRequester{
+	client, err := newClient(t, &mockRequester{
 		resp: &mockResponse{status: 200, body: []byte(`{"devices":[]}`)},
 	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	_, err := client.GetDeviceInfo(context.Background(), "   ")
+	_, err = client.GetDeviceInfo(context.Background(), "   ")
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -181,7 +196,10 @@ func TestGetWifiClientHistoryMACs_SuccessAndEscaping(t *testing.T) {
 	reqMock := &mockRequester{
 		resp: &mockResponse{status: 200, body: []byte(`{"entries":["aa:bb","cc:dd"]}`)},
 	}
-	client := newClient(t, reqMock)
+	client, err := newClient(t, reqMock)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	entries, err := client.GetWifiClientHistoryMACs(context.Background(), " board /id?x=1 ", 50, 10)
 	if err != nil {
@@ -214,11 +232,14 @@ func TestGetWifiClientHistoryMACs_SuccessAndEscaping(t *testing.T) {
 }
 
 func TestGetWifiClientHistoryMACs_NotFound(t *testing.T) {
-	client := newClient(t, &mockRequester{
+	client, err := newClient(t, &mockRequester{
 		resp: &mockResponse{status: 404, body: []byte(`{}`)},
 	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	_, err := client.GetWifiClientHistoryMACs(context.Background(), "b1", 10, 0)
+	_, err = client.GetWifiClientHistoryMACs(context.Background(), "b1", 10, 0)
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -228,11 +249,14 @@ func TestGetWifiClientHistoryMACs_NotFound(t *testing.T) {
 }
 
 func TestGetWifiClientHistoryMACs_NonOK(t *testing.T) {
-	client := newClient(t, &mockRequester{
+	client, err := newClient(t, &mockRequester{
 		resp: &mockResponse{status: 500, body: []byte(`{}`)},
 	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	_, err := client.GetWifiClientHistoryMACs(context.Background(), "b1", 10, 0)
+	_, err = client.GetWifiClientHistoryMACs(context.Background(), "b1", 10, 0)
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -242,11 +266,14 @@ func TestGetWifiClientHistoryMACs_NonOK(t *testing.T) {
 }
 
 func TestGetWifiClientHistoryMACs_InvalidJSON(t *testing.T) {
-	client := newClient(t, &mockRequester{
+	client, err := newClient(t, &mockRequester{
 		resp: &mockResponse{status: 200, body: []byte(`{not-json`)},
 	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	_, err := client.GetWifiClientHistoryMACs(context.Background(), "b1", 10, 0)
+	_, err = client.GetWifiClientHistoryMACs(context.Background(), "b1", 10, 0)
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -256,9 +283,12 @@ func TestGetWifiClientHistoryMACs_InvalidJSON(t *testing.T) {
 }
 
 func TestGetWifiClientHistoryMACs_Validation(t *testing.T) {
-	client := newClient(t, &mockRequester{
+	client, err := newClient(t, &mockRequester{
 		resp: &mockResponse{status: 200, body: []byte(`{"entries":[]}`)},
 	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	testCases := []struct {
 		name    string
@@ -286,9 +316,12 @@ func TestGetWifiClientHistoryMACs_Validation(t *testing.T) {
 }
 
 func TestGetWifiClientHistoryMACs_PreservesTimeoutError(t *testing.T) {
-	client := newClient(t, &mockRequester{err: context.DeadlineExceeded})
+	client, err := newClient(t, &mockRequester{err: context.DeadlineExceeded})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	_, err := client.GetWifiClientHistoryMACs(context.Background(), "b1", 10, 0)
+	_, err = client.GetWifiClientHistoryMACs(context.Background(), "b1", 10, 0)
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -309,9 +342,12 @@ func TestGetTimepoints_PathAndQueryEscaping(t *testing.T) {
 	reqMock := &mockRequester{
 		resp: &mockResponse{status: 200, body: []byte(`{"points":[]}`)},
 	}
-	client := newClient(t, reqMock)
+	client, err := newClient(t, reqMock)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	_, err := client.GetTimepoints(context.Background(), TimepointRequest{
+	_, err = client.GetTimepoints(context.Background(), TimepointRequest{
 		BoardID:         " board /id?x=1 ",
 		FromDate:        11,
 		EndDate:         22,
@@ -360,9 +396,12 @@ func TestGetTimepoints_PathAndQueryEscaping(t *testing.T) {
 }
 
 func TestGetTimepoints_Validation(t *testing.T) {
-	client := newClient(t, &mockRequester{
+	client, err := newClient(t, &mockRequester{
 		resp: &mockResponse{status: 200, body: []byte(`{"points":[]}`)},
 	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	testCases := []struct {
 		name string

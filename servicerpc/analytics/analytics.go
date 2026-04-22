@@ -20,10 +20,13 @@ type AnalyticsClient struct {
 	deps *common.ServiceRPCBase
 }
 
-func NewAnalyticsClient(deps *common.ServiceRPCBase) *AnalyticsClient {
+func NewAnalyticsClient(deps *common.ServiceRPCBase) (*AnalyticsClient, error) {
+	if deps == nil {
+		return nil, apperror.New(apperror.CodeInternal, "dependencies cannot be nil")
+	}
 	return &AnalyticsClient{
 		deps: deps,
-	}
+	}, nil
 }
 
 // GetTimepoints fetches analytics timepoints.
@@ -81,7 +84,6 @@ func (v *AnalyticsClient) GetTimepoints(ctx context.Context, req TimepointReques
 		}
 		timepoints = append(timepoints, bucket...)
 	}
-
 	v.deps.Logger().With(
 		"records", len(timepoints),
 		"status", resp.StatusCode(),
