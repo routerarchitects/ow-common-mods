@@ -105,13 +105,13 @@ func handleSetLogLevel(c fiber.Ctx, rawSubsystems []setLogLevelSubsystem) error 
 
 		if strings.EqualFold(tag, "all") {
 			for name := range current {
-				updates[name] = value
+				updates[name] = strings.ToLower(value)
 			}
 			continue
 		}
 
 		// Keep success semantics even when the subsystem name is unknown.
-		updates[tag] = value
+		updates[tag] = strings.ToLower(value)
 	}
 
 	if err := logger.UpdateSubsystemLevels(updates); err != nil {
@@ -184,7 +184,7 @@ func getSubsystemTagList() []fiber.Map {
 	for _, name := range names {
 		tagList = append(tagList, fiber.Map{
 			"tag":   name,
-			"value": levels[name],
+			"value": strings.ToLower(levels[name]),
 		})
 	}
 	return tagList
