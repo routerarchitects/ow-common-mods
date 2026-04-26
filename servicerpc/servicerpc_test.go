@@ -37,10 +37,10 @@ func TestNewServiceRpc_Wiring(t *testing.T) {
 	if rpc == nil {
 		t.Fatalf("expected rpc instance")
 	}
-	if rpc.AnalyticsClient() == nil {
+	if client, err := rpc.AnalyticsClient(); err != nil || client == nil {
 		t.Fatalf("expected analytics client")
 	}
-	if rpc.SecurityClient() == nil {
+	if client, err := rpc.SecurityClient(); err != nil || client == nil {
 		t.Fatalf("expected security client")
 	}
 }

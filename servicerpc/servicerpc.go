@@ -29,10 +29,10 @@ func NewServiceRpc(
 	return &ServiceRpc{deps: base}, nil
 }
 
-func (f *ServiceRpc) AnalyticsClient() *analytics.AnalyticsClient {
+func (f *ServiceRpc) AnalyticsClient() (*analytics.AnalyticsClient, error) {
 	return analytics.NewAnalyticsClient(f.deps)
 }
 
-func (f *ServiceRpc) SecurityClient() *owsec.SecurityClient {
+func (f *ServiceRpc) SecurityClient() (*owsec.SecurityClient , error ) {
 	return owsec.NewSecurityClient(f.deps)
 }
