@@ -137,7 +137,7 @@ Request:
 Behavior:
 
 - empty or missing `subsystems` returns invalid-parameters `400`
-- `tag=all` applies the same level to all known subsystems
+- `tag=all` applies the same level to all known subsystems with log level in lowercase
 - unknown tags are still passed to `logger.UpdateSubsystemLevels`
 - if update succeeds, returns:
 
@@ -163,6 +163,7 @@ Response shape:
 ```
 
 `tagList` is sorted by `tag` ascending.
+`value` will be log level in lowercase
 
 ### `getloglevelnames`
 
