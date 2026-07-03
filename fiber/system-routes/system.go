@@ -77,7 +77,7 @@ func (rt *routes) handleSystemPost(c fiber.Ctx) error {
 		})
 	case "getloglevelnames":
 		return c.JSON(fiber.Map{
-			"list": logger.GetAllLevels(),
+			"list": []string{"error", "warning", "information", "debug"},
 		})
 	case "getsubsystemnames":
 		return c.JSON(fiber.Map{
@@ -99,24 +99,40 @@ func handleSetLogLevel(c fiber.Ctx, rawSubsystems []setLogLevelSubsystem) error 
 	updates := map[string]string{}
 
 	for _, item := range rawSubsystems {
-
 		tag := item.Tag
 		value := item.Value
 
+		// Map C++ log level names to Go slog level names
+		var goValue string
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "debug", "trace":
+			goValue = "debug"
+		case "information", "info", "notice":
+			goValue = "info"
+		case "warning", "warn":
+			goValue = "warn"
+		case "error", "critical", "fatal":
+			goValue = "error"
+		default:
+			goValue = "info"
+		}
+
 		if strings.EqualFold(tag, "all") {
 			for name := range current {
-				updates[name] = value
+				updates[name] = goValue
 			}
 			continue
 		}
 
-		// Keep success semantics even when the subsystem name is unknown.
-		updates[tag] = value
+		updates[tag] = goValue
 	}
 
 	if err := logger.UpdateSubsystemLevels(updates); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(invalidParametersResponse())
 	}
+
+	// Print log level change to console/terminal
+	fmt.Printf("subsystem log level updated: %+v\n", updates)
 
 	return c.JSON(successResponse())
 }
@@ -182,9 +198,22 @@ func getSubsystemTagList() []fiber.Map {
 
 	tagList := make([]fiber.Map, 0, len(names))
 	for _, name := range names {
+		var val string
+		switch strings.ToUpper(levels[name]) {
+		case "DEBUG":
+			val = "debug"
+		case "INFO":
+			val = "information"
+		case "WARN":
+			val = "warning"
+		case "ERROR":
+			val = "error"
+		default:
+			val = "information"
+		}
 		tagList = append(tagList, fiber.Map{
 			"tag":   name,
-			"value": levels[name],
+			"value": val,
 		})
 	}
 	return tagList
