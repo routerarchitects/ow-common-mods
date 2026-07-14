@@ -69,11 +69,10 @@ _ = timepoints
 
 ### Security (`servicerpc/owsec`)
 - `ValidateToken(ctx, rawToken)`
-  - validates by trying both owsec APIs in sequence:
-  - `GET /api/v1/validateSubToken?token=...`
+  - strictly validates regular/administrator tokens by calling:
   - `GET /api/v1/validateToken?token=...`
-  - returns success if either endpoint returns `200`
-  - if any error occurs in `validateSubToken`, `validateToken` is not attempted
+  - returns success if the endpoint returns `200`
+  - rejects subscriber tokens by default (does not call `/api/v1/validateSubToken`)
 
 ### Analytics input notes
 - `GetWifiClientHistoryMACs(ctx, boardID, limit, offset)` requires:
@@ -125,4 +124,4 @@ Recommended unit tests:
 - resolver failures (`not found`, `invalid resolver`)
 - requester failures and status-code mapping
 - context timeout/cancellation propagation from caller
-- dual-endpoint behavior in `SecurityClient.ValidateToken`
+- single-endpoint behavior in `SecurityClient.ValidateToken`
