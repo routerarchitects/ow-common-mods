@@ -26,27 +26,13 @@ func NewSecurityClient(deps *common.ServiceRPCBase) (*SecurityClient, error) {
 	}, nil
 }
 
-// ValidateToken validates token by checking both subscription-token and
-// regular-token endpoints.
-//
+// ValidateToken validates a regular (non-subscriber) token by calling the
+// security service's /api/v1/validateToken endpoint.
 // Caller must pass ctx with timeout/deadline.
 func (s *SecurityClient) ValidateToken(ctx context.Context, rawToken string) error {
 	token := strings.TrimSpace(rawToken)
 	if token == "" {
 		return apperror.New(apperror.CodeUnauthorized, "unauthorized")
-	}
-
-	subResp, subErr := s.deps.Send(ctx, http.MethodGet, "/api/v1/validateSubToken?token="+url.QueryEscape(token), nil, serviceName)
-	if subResp != nil {
-		defer subResp.Close()
-	}
-
-	if subErr != nil {
-		return subErr
-	}
-
-	if subResp != nil && subResp.StatusCode() == http.StatusOK {
-		return nil
 	}
 
 	tokenResp, tokenErr := s.deps.Send(ctx, http.MethodGet, "/api/v1/validateToken?token="+url.QueryEscape(token), nil, serviceName)
@@ -67,16 +53,11 @@ func (s *SecurityClient) ValidateToken(ctx context.Context, rawToken string) err
 		return nil
 	}
 
-	subStatus := http.StatusInternalServerError
-	if subResp != nil {
-		subStatus = subResp.StatusCode()
-	}
-
-	if isInvalidTokenStatus(subStatus) && isInvalidTokenStatus(tokenResp.StatusCode()) {
+	if isInvalidTokenStatus(tokenResp.StatusCode()) {
 		return apperror.New(apperror.CodeUnauthorized, "unauthorized")
 	}
 
-	return apperror.New(apperror.CodeInternal, fmt.Sprintf("token validation failed (subtoken=%d token=%d)", subStatus, tokenResp.StatusCode()))
+	return apperror.New(apperror.CodeInternal, fmt.Sprintf("token validation failed (token=%d)", tokenResp.StatusCode()))
 }
 
 func isInvalidTokenStatus(status int) bool {
