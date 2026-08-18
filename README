@@ -1,1 +1,43 @@
-# ow-common-mods
+# OpenWiFi Common Modules
+
+Reusable common modules used by Router Architects' OpenWiFi and Mango Cloud services.
+
+This repository provides shared components for service discovery, RPC communication, and supporting infrastructure used across the OpenWiFi cloud stack.
+
+## Role in Mango Cloud
+
+This repository is part of [Mango Cloud](https://www.mangowifi.cloud/), Router Architects' open-source platform for managed Wi-Fi and connectivity operations.
+
+Mango Cloud builds on the OpenLAN/OpenWiFi ecosystem to provide cloud-based provisioning, monitoring, device lifecycle management, subscriber workflows, analytics, topology, and operational services for managed Wi-Fi deployments.
+
+The modules in this repository are shared by multiple Mango Cloud/OpenWiFi microservices and help provide common service-to-service functionality across the platform.
+
+## Modules
+
+### `fiber`
+
+Shared asynchronous and execution utilities used by OpenWiFi cloud services.
+
+### `servicediscovery`
+
+Common service-discovery functionality used by distributed OpenWiFi and Mango Cloud components.
+
+### `servicerpc`
+
+Shared RPC functionality for communication between cloud microservices.
+
+## Related Mango Cloud Projects
+
+- [Mango Cloud Deployment](https://github.com/routerarchitects/mango-cloud-deployment)
+- [OpenWiFi Provisioning Service](https://github.com/routerarchitects/ra-wlan-cloud-owprov)
+- [uCentral Gateway](https://github.com/routerarchitects/ra-wlan-cloud-ucentralgw)
+- [OpenWiFi Analytics](https://github.com/routerarchitects/ra-wlan-cloud-analytics)
+- [Mango Cloud](https://www.mangowifi.cloud/)
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+
+## License
+
+See [LICENSE](LICENSE) for licensing information.
