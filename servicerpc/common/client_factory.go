@@ -19,6 +19,7 @@ import (
 type ServiceInstance struct {
 	Key             string
 	PrivateEndPoint string
+	PublicEndPoint  string
 }
 
 type ServiceResolver interface {
@@ -56,6 +57,7 @@ func (r *discoveryResolver) Resolve(serviceName string) (*ServiceInstance, error
 	return &ServiceInstance{
 		Key:             instance.Key,
 		PrivateEndPoint: instance.PrivateEndPoint,
+		PublicEndPoint:  instance.PublicEndPoint,
 	}, nil
 }
 
@@ -161,6 +163,13 @@ func (s *ServiceRPCBase) Logger() *slog.Logger {
 		return slog.Default()
 	}
 	return s.logger
+}
+
+func (s *ServiceRPCBase) Resolver() ServiceResolver {
+	if s == nil {
+		return nil
+	}
+	return s.resolver
 }
 
 // Send dispatches a request to the discovered service endpoint.

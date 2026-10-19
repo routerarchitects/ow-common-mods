@@ -37,3 +37,13 @@ func validateWifiClientHistoryRequest(boardID string, limit, offset int) error {
 	}
 	return nil
 }
+
+func validateDeviceSummaryRequest(routerID, authorization string) error {
+	if strings.TrimSpace(routerID) == "" {
+		return apperror.New(apperror.CodeInvalidInput, "routerID is required")
+	}
+	if strings.TrimSpace(authorization) == "" {
+		return apperror.New(apperror.CodeInvalidInput, "authorization is required")
+	}
+	return nil
+}
