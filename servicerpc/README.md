@@ -83,6 +83,39 @@ _ = timepoints
 
 ### User-scoped analytics
 
+New integrations should select an explicit endpoint mode:
+
+```go
+client, err := analytics.NewUserScopedClient(analytics.UserScopedConfig{
+    EndpointMode: analytics.EndpointModeDiscoveryRequired,
+    Resolver: common.NewDiscoveryResolver(discovery),
+    InternalName: discovery.Self().PublicEndPoint,
+    TLSRootCA: "/etc/ssl/analytics-ca.pem",
+})
+```
+
+`EndpointModeDiscoveryRequired` resolves `owanalytics` for each operation, validates
+its `PrivateEndPoint` and discovered key, and sends both internal RPC headers and
+the caller's unchanged Bearer header. `InternalName` must be the caller's advertised
+public HTTP(S) URL, not its application name. Missing or invalid records fail with
+typed application errors. `BaseURL` is ignored even if set; public endpoints and
+static URLs are never fallbacks after discovery, connection, TLS, or auth failures.
+The receiver must independently authenticate the service and the original user.
+
+`EndpointModeStandalone` requires an explicit `BaseURL`, never performs discovery,
+and sends only the original user authorization. Both explicit modes reject
+redirects, require Bearer syntax, and preserve request-scoped credentials. Client
+construction does not require a populated discovery store; lookup occurs per call.
+
+Migration: the five exported methods and interface are unchanged. Empty
+`EndpointMode` and `ServiceRpc.UserScopedAnalyticsClient` retain the existing
+static/public selection policy for compatibility with existing consumers; they
+must not be used for strict private discovery. Migrate discovery integrations to
+the explicit constructor above. Neither generic RPC calls nor the compatibility
+factory automatically acquire or forward a user's token. `APIClientError` retains
+typed causes through `Unwrap`, but its message and the MCP formatter omit raw
+transport errors and upstream bodies to prevent credential disclosure.
+
 Create the client with `rpc.UserScopedAnalyticsClient(baseURL, opts...)` or
 `analytics.NewUserScopedClient(cfg, opts...)`. All five summary methods require
 a nonempty router ID and authorization, an RFC3339 `timestampTill` (for example

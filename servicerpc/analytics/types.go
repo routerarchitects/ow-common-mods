@@ -69,7 +69,7 @@ func (e *APIClientError) Error() string {
 		return fmt.Sprintf("Outbound API operation failed: %s status=%d", e.Operation, *e.StatusCode)
 	}
 	if e.Err != nil {
-		return fmt.Sprintf("Outbound API operation failed: %s: %v", e.Operation, e.Err)
+		return fmt.Sprintf("Outbound API operation failed: %s: service unavailable", e.Operation)
 	}
 	return fmt.Sprintf("Outbound API operation failed: %s", e.Operation)
 }
@@ -92,7 +92,15 @@ type ClockFunc func() time.Time
 
 // UserScopedConfig encapsulates configuration for UserScopedAnalyticsClient.
 type UserScopedConfig struct {
-	// BaseURL specifies an explicit base URL (e.g. "https://127.0.0.1:16009") which takes precedence over discovery.
+	// EndpointMode explicitly selects private discovery or standalone operation.
+	// Empty retains the pre-mode endpoint policy for existing consumers only.
+	EndpointMode EndpointMode
+
+	// InternalName is the caller's advertised public endpoint in private mode.
+	InternalName string
+
+	// BaseURL selects the standalone target and is ignored in discovery-required
+	// mode. Empty EndpointMode retains legacy static/public endpoint precedence.
 	BaseURL string
 
 	// Discovery optionally provides service discovery for discovery-enabled mode.

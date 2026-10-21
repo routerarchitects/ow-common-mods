@@ -160,6 +160,14 @@ func NewUserScopedClient(cfg UserScopedConfig, opts ...UserScopedOption) (UserSc
 	for _, opt := range opts {
 		opt(c)
 	}
+	if cfg.EndpointMode != "" && cfg.EndpointMode != EndpointModeStandalone && cfg.EndpointMode != EndpointModeDiscoveryRequired {
+		return nil, apperror.New(apperror.CodeInvalidInput, "invalid Analytics endpoint mode")
+	}
+	if cfg.EndpointMode == EndpointModeDiscoveryRequired {
+		if err := ValidatePrivateIdentity(cfg.InternalName); err != nil {
+			return nil, err
+		}
+	}
 
 	if c.client == nil {
 		if err := c.initHTTP(); err != nil {
@@ -185,8 +193,14 @@ func NewUserScopedClient(cfg UserScopedConfig, opts ...UserScopedOption) (UserSc
 		}
 		c.client = &cloned
 	}
+	if cfg.EndpointMode == EndpointModeDiscoveryRequired || cfg.EndpointMode == EndpointModeStandalone {
+		// Never let a redirect choose a different endpoint for either credential.
+		cloned := *c.client
+		cloned.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		c.client = &cloned
+	}
 
-	if strings.TrimSpace(c.baseURL) != "" {
+	if cfg.EndpointMode != EndpointModeDiscoveryRequired && (cfg.EndpointMode == EndpointModeStandalone || strings.TrimSpace(c.baseURL) != "") {
 		if _, err := validateEndpointURL(c.baseURL); err != nil {
 			return nil, err
 		}
@@ -339,19 +353,28 @@ func (c *userScopedClient) getJSON(
 		return nil, err
 	}
 
-	baseURL, err := c.resolveBaseURL()
+	target, err := c.resolveTarget()
 	if err != nil {
 		return nil, err
 	}
 
-	reqURL, err := buildURL(baseURL, path, params)
+	reqURL, err := buildURL(target.baseURL, path, params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to construct request URL: %w", err)
 	}
 
-	authHeader := strings.TrimSpace(authorization)
-	if authHeader != "" && !strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
-		authHeader = "Bearer " + authHeader
+	authHeader := authorization
+	if c.cfg.EndpointMode == "" {
+		// Preserve the legacy raw-token convenience only for existing consumers.
+		authHeader = strings.TrimSpace(authorization)
+		if authHeader != "" && !strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
+			authHeader = "Bearer " + authHeader
+		}
+	} else {
+		scheme, token, found := strings.Cut(authorization, " ")
+		if !found || !strings.EqualFold(scheme, "Bearer") || strings.TrimSpace(token) == "" || strings.ContainsAny(authorization, "\r\n") {
+			return nil, apperror.New(apperror.CodeUnauthorized, "user Bearer authorization is required for Analytics")
+		}
 	}
 
 	maxAttempts := c.maxRetries + 1
@@ -373,6 +396,10 @@ func (c *userScopedClient) getJSON(
 		if authHeader != "" {
 			req.Header.Set("Authorization", authHeader)
 		}
+		if target.internalKey != "" {
+			req.Header.Set("X-API-KEY", target.internalKey)
+			req.Header.Set("X-INTERNAL-NAME", target.internalName)
+		}
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("Content-Type", "application/json")
 
@@ -387,7 +414,7 @@ func (c *userScopedClient) getJSON(
 
 			if attempt >= maxAttempts {
 				if c.logger != nil {
-					c.logger.Error(fmt.Sprintf("%s request failed after %d attempt(s): %v", operation, attempt, err))
+					c.logger.Error("Analytics request failed", "operation", operation, "attempts", attempt)
 				}
 				return nil, &APIClientError{
 					Operation: operation,
@@ -397,8 +424,7 @@ func (c *userScopedClient) getJSON(
 
 			delay := c.calculateRetryDelay(attempt)
 			if c.logger != nil {
-				c.logger.Warn(fmt.Sprintf("%s retrying after request_error=%v attempt=%d/%d delay=%.2fs",
-					operation, err, attempt, maxAttempts, delay.Seconds()))
+				c.logger.Warn("retrying Analytics request", "operation", operation, "attempt", attempt, "max_attempts", maxAttempts, "delay", delay)
 			}
 
 			if sleepErr := c.sleeper(ctx, delay); sleepErr != nil {
