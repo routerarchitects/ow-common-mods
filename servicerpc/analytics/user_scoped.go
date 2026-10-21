@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -24,6 +25,14 @@ import (
 
 // UserScopedOption configures userScopedClient.
 type UserScopedOption func(*userScopedClient)
+
+// WithMaxRetries overrides the retry count, including the configured default.
+// A nonpositive value disables retries, allowing only the initial HTTP attempt.
+func WithMaxRetries(maxRetries int) UserScopedOption {
+	return func(c *userScopedClient) {
+		c.maxRetries = max(0, maxRetries)
+	}
+}
 
 // WithHTTPClient overrides the internal http.Client (e.g. for testing with httptest).
 func WithHTTPClient(client *http.Client) UserScopedOption {
@@ -56,7 +65,7 @@ func WithClock(clk ClockFunc) UserScopedOption {
 // WithBaseURL sets or overrides the base URL.
 func WithBaseURL(baseURL string) UserScopedOption {
 	return func(c *userScopedClient) {
-		c.baseURL = strings.TrimRight(baseURL, "/")
+		c.baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	}
 }
 
@@ -100,7 +109,7 @@ func NewUserScopedClient(cfg UserScopedConfig, opts ...UserScopedOption) (UserSc
 	}
 
 	maxRetries := cfg.MaxRetries
-	if maxRetries < 0 {
+	if maxRetries <= 0 {
 		maxRetries = 2
 	}
 
@@ -118,7 +127,7 @@ func NewUserScopedClient(cfg UserScopedConfig, opts ...UserScopedOption) (UserSc
 
 	c := &userScopedClient{
 		cfg:           cfg,
-		baseURL:       strings.TrimRight(cfg.BaseURL, "/"),
+		baseURL:       strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/"),
 		resolver:      resolver,
 		logger:        cfg.Logger,
 		timeout:       timeout,
@@ -151,14 +160,101 @@ func NewUserScopedClient(cfg UserScopedConfig, opts ...UserScopedOption) (UserSc
 	for _, opt := range opts {
 		opt(c)
 	}
+	if cfg.EndpointMode != "" && cfg.EndpointMode != EndpointModeStandalone && cfg.EndpointMode != EndpointModeDiscoveryRequired {
+		return nil, apperror.New(apperror.CodeInvalidInput, "invalid Analytics endpoint mode")
+	}
+	if cfg.EndpointMode == EndpointModeDiscoveryRequired {
+		if err := ValidatePrivateIdentity(cfg.InternalName); err != nil {
+			return nil, err
+		}
+	}
 
 	if c.client == nil {
 		if err := c.initHTTP(); err != nil {
 			return nil, err
 		}
+	} else {
+		origCheckRedirect := c.client.CheckRedirect
+		cloned := *c.client
+		cloned.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			if len(via) > 0 {
+				initialURL := via[0].URL
+				if !strings.EqualFold(initialURL.Scheme, req.URL.Scheme) || !strings.EqualFold(initialURL.Host, req.URL.Host) {
+					req.Header.Del("Authorization")
+				}
+			}
+			if origCheckRedirect != nil {
+				return origCheckRedirect(req, via)
+			}
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			return nil
+		}
+		c.client = &cloned
+	}
+	if cfg.EndpointMode == EndpointModeDiscoveryRequired || cfg.EndpointMode == EndpointModeStandalone {
+		// Never let a redirect choose a different endpoint for either credential.
+		cloned := *c.client
+		cloned.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		c.client = &cloned
+	}
+
+	if cfg.EndpointMode != EndpointModeDiscoveryRequired && (cfg.EndpointMode == EndpointModeStandalone || strings.TrimSpace(c.baseURL) != "") {
+		if _, err := validateEndpointURL(c.baseURL); err != nil {
+			return nil, err
+		}
 	}
 
 	return c, nil
+}
+
+func checkRedirectPolicy(req *http.Request, via []*http.Request) error {
+	if len(via) > 0 {
+		initialURL := via[0].URL
+		if !strings.EqualFold(initialURL.Scheme, req.URL.Scheme) || !strings.EqualFold(initialURL.Host, req.URL.Host) {
+			req.Header.Del("Authorization")
+		}
+	}
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	return nil
+}
+
+func validateEndpointURL(rawURL string) (*url.URL, error) {
+	trimmed := strings.TrimSpace(rawURL)
+	if trimmed == "" {
+		return nil, apperror.New(apperror.CodeInvalidInput, "endpoint URL is empty")
+	}
+
+	if strings.Contains(trimmed, "#") {
+		return nil, apperror.New(apperror.CodeInvalidInput, fmt.Sprintf("invalid endpoint URL %q: URL must not contain fragments", rawURL))
+	}
+
+	u, err := url.Parse(trimmed)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInvalidInput, fmt.Sprintf("invalid endpoint URL %q", rawURL), err)
+	}
+
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return nil, apperror.New(apperror.CodeInvalidInput, fmt.Sprintf("invalid endpoint URL %q: scheme must be http or https", rawURL))
+	}
+
+	if u.Hostname() == "" {
+		return nil, apperror.New(apperror.CodeInvalidInput, fmt.Sprintf("invalid endpoint URL %q: missing hostname", rawURL))
+	}
+
+	if u.User != nil {
+		return nil, apperror.New(apperror.CodeInvalidInput, fmt.Sprintf("invalid endpoint URL %q: embedded credentials are not allowed", rawURL))
+	}
+
+	if u.Fragment != "" {
+		return nil, apperror.New(apperror.CodeInvalidInput, fmt.Sprintf("invalid endpoint URL %q: fragments are not allowed", rawURL))
+	}
+
+	return u, nil
 }
 
 func (c *userScopedClient) initHTTP() error {
@@ -194,7 +290,8 @@ func (c *userScopedClient) initHTTP() error {
 	}
 
 	c.client = &http.Client{
-		Transport: c.transport,
+		Transport:     c.transport,
+		CheckRedirect: checkRedirectPolicy,
 	}
 
 	return nil
@@ -212,30 +309,37 @@ func (c *userScopedClient) Close() error {
 }
 
 func (c *userScopedClient) resolveBaseURL() (string, error) {
+	// 1. If an explicit BaseURL is configured, use it.
+	if strings.TrimSpace(c.baseURL) != "" {
+		if _, err := validateEndpointURL(c.baseURL); err != nil {
+			return "", err
+		}
+		return strings.TrimRight(strings.TrimSpace(c.baseURL), "/"), nil
+	}
+
+	// 2. Otherwise, resolve OWANALYTICS using the existing service discovery resolver.
 	if c.resolver != nil {
 		inst, err := c.resolver.Resolve(serviceName)
 		if err != nil {
-			if c.baseURL != "" {
-				return c.baseURL, nil
-			}
 			return "", err
 		}
 		if inst != nil {
-			if strings.TrimSpace(inst.PublicEndPoint) != "" {
-				return strings.TrimRight(inst.PublicEndPoint, "/"), nil
-			}
-			if c.baseURL != "" {
-				return c.baseURL, nil
+			// 3. If discovery returns a valid PublicEndPoint, use it.
+			// 5. Never substitute PrivateEndPoint for user-scoped requests.
+			publicEndpoint := strings.TrimSpace(inst.PublicEndPoint)
+			if publicEndpoint != "" {
+				if _, err := validateEndpointURL(publicEndpoint); err != nil {
+					return "", err
+				}
+				return strings.TrimRight(publicEndpoint, "/"), nil
 			}
 			return "", apperror.New(apperror.CodeInvalidInput, "discovered owanalytics service does not expose a verified public endpoint for user-scoped requests")
 		}
+		return "", apperror.New(apperror.CodeInvalidInput, "discovered owanalytics service instance is nil")
 	}
 
-	if strings.TrimSpace(c.baseURL) == "" {
-		return "", apperror.New(apperror.CodeInvalidInput, "no baseURL configured for standalone analytics client")
-	}
-
-	return c.baseURL, nil
+	// 4. If neither source provides a valid endpoint, return an appropriate error.
+	return "", apperror.New(apperror.CodeInvalidInput, "no baseURL configured and no service resolver available for user-scoped analytics client")
 }
 
 func (c *userScopedClient) getJSON(
@@ -249,19 +353,28 @@ func (c *userScopedClient) getJSON(
 		return nil, err
 	}
 
-	baseURL, err := c.resolveBaseURL()
+	target, err := c.resolveTarget()
 	if err != nil {
 		return nil, err
 	}
 
-	reqURL, err := buildURL(baseURL, path, params)
+	reqURL, err := buildURL(target.baseURL, path, params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to construct request URL: %w", err)
 	}
 
-	authHeader := strings.TrimSpace(authorization)
-	if authHeader != "" && !strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
-		authHeader = "Bearer " + authHeader
+	authHeader := authorization
+	if c.cfg.EndpointMode == "" {
+		// Preserve the legacy raw-token convenience only for existing consumers.
+		authHeader = strings.TrimSpace(authorization)
+		if authHeader != "" && !strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
+			authHeader = "Bearer " + authHeader
+		}
+	} else {
+		scheme, token, found := strings.Cut(authorization, " ")
+		if !found || !strings.EqualFold(scheme, "Bearer") || strings.TrimSpace(token) == "" || strings.ContainsAny(authorization, "\r\n") {
+			return nil, apperror.New(apperror.CodeUnauthorized, "user Bearer authorization is required for Analytics")
+		}
 	}
 
 	maxAttempts := c.maxRetries + 1
@@ -283,6 +396,10 @@ func (c *userScopedClient) getJSON(
 		if authHeader != "" {
 			req.Header.Set("Authorization", authHeader)
 		}
+		if target.internalKey != "" {
+			req.Header.Set("X-API-KEY", target.internalKey)
+			req.Header.Set("X-INTERNAL-NAME", target.internalName)
+		}
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("Content-Type", "application/json")
 
@@ -297,7 +414,7 @@ func (c *userScopedClient) getJSON(
 
 			if attempt >= maxAttempts {
 				if c.logger != nil {
-					c.logger.Error(fmt.Sprintf("%s request failed after %d attempt(s): %v", operation, attempt, err))
+					c.logger.Error("Analytics request failed", "operation", operation, "attempts", attempt)
 				}
 				return nil, &APIClientError{
 					Operation: operation,
@@ -307,8 +424,7 @@ func (c *userScopedClient) getJSON(
 
 			delay := c.calculateRetryDelay(attempt)
 			if c.logger != nil {
-				c.logger.Warn(fmt.Sprintf("%s retrying after request_error=%v attempt=%d/%d delay=%.2fs",
-					operation, err, attempt, maxAttempts, delay.Seconds()))
+				c.logger.Warn("retrying Analytics request", "operation", operation, "attempt", attempt, "max_attempts", maxAttempts, "delay", delay)
 			}
 
 			if sleepErr := c.sleeper(ctx, delay); sleepErr != nil {
@@ -499,4 +615,3 @@ func buildURL(baseURL, path string, params map[string]string) (*url.URL, error) 
 
 	return u, nil
 }
-

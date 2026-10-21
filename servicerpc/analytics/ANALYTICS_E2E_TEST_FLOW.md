@@ -1,226 +1,62 @@
-# `analytics_e2e_test.go` API Call Flow
+# Analytics HTTP test coverage
 
-This document explains what [`analytics_e2e_test.go`](/home/uttam/openwifi_workspace/uttam-repos/ow-common-mods/servicerpc/analytics/analytics_e2e_test.go) is testing and how the analytics client calls another service over HTTP.
+The included tests use local HTTP/HTTPS servers or injected requesters. They do
+not contact a deployed OWANALYTICS service or require Kafka.
 
-## Purpose
+## User-scoped request flow
 
-The file is an end-to-end style test for the analytics RPC client.
+The client in [user_scoped.go](user_scoped.go) and [summary.go](summary.go):
 
-It does not start the real `owanalytics` service.
-Instead, it starts a local mock HTTP server with `httptest.NewServer(...)` and verifies that the client sends the same HTTP requests that a real caller service would send to `owanalytics`.
+1. Validates the router ID, authorization, RFC3339 timestamp, and positive lookback.
+2. Uses the explicit base URL, or resolves the public endpoint through discovery.
+3. Escapes the router ID and encodes `timestampTill` and `lookbackHours` as query parameters.
+4. Sends the caller's bearer token without internal RPC authentication headers.
+5. Parses JSON, preserving numbers, or returns an `APIClientError`.
 
-## Components Involved
+[User-scoped HTTP tests](user_scoped_test.go) include:
 
-The test wires together these pieces:
+- `TestUserScopedClient_AllFiveEndpoints`: verifies all five summary paths.
+- `TestUserScopedClient_CorrectQueryParameters`: checks timestamp and lookback parameters.
+- `TestUserScopedClient_BearerTokenAndNoInternalAPIKey`: checks user authentication headers.
+- `TestUserScopedClient_URLEscaping`: checks escaped router IDs.
+- `TestUserScopedClient_RetryBehavior`: checks recovery from 5xx errors and handling of Retry-After.
+- `TestUserScopedClient_HTTP401And403Handling`: checks that authentication failures are not retried.
+- `TestFormatAnalyticsErrorMessage_OmitsUpstreamBody`: checks that formatted errors exclude upstream payloads.
 
-1. `analyticsE2EResolver`
-   Returns a fixed `common.ServiceInstance`.
-   This replaces real service discovery.
+[Policy tests](user_scoped_policy_test.go) verify the default and explicit retry
+counts, rejection of invalid input before HTTP requests, and accepted timestamp
+formats. Two retries (three total attempts) are the default; `WithMaxRetries(0)`
+disables them. See the [module README](../README.md#user-scoped-analytics) for configuration.
 
-2. `common.ServiceRPCBase`
-   Shared transport layer used by all service RPC clients.
+[Factory integration tests](../servicerpc_test.go) include
+`TestUserScopedAnalyticsClient_TLSRootCA`, which verifies HTTPS succeeds with a
+custom trusted CA and fails without it, and
+`TestUserScopedAnalyticsClient_RetryPolicy`, which checks the factory's default
+retry count and explicit opt-out.
 
-3. `AnalyticsClient`
-   The package client that builds analytics endpoints and parses responses.
+## Internal RPC request flow
 
-4. `httptest` server
-   Fake upstream service that receives HTTP requests and returns JSON.
+The internal [AnalyticsClient](analytics.go) sends requests through
+[ServiceRPCBase](../common/client_factory.go), which resolves the private endpoint
+and adds `X-API-KEY` and `X-INTERNAL-NAME`.
 
-## How the Call Reaches Another Service
+`TestExistingInternalAnalyticsRPC_RemainsFunctional` in
+[user_scoped_test.go](user_scoped_test.go) uses an HTTP server and the real Fiber
+requester to check `GetDeviceInfo`, response decoding, and internal headers.
 
-For every client method, the flow is:
+[analytics_test.go](analytics_test.go) uses injected resolvers and requesters to
+check `GetTimepoints`, `GetDeviceInfo`, and `GetWifiClientHistoryMACs`.
+`TestGetDeviceInfo_PathEscaping` and `TestGetTimepoints_PathAndQueryEscaping`
+verify escaped board IDs. `GetDeviceInfo` trims and escapes board IDs with
+`url.PathEscape` before building the request path.
 
-1. The caller creates `AnalyticsClient` with `NewAnalyticsClient(base)`.
-2. The client method calls `base.Send(..., serviceName)`.
-3. `ServiceRPCBase.Send` resolves the target service name `owanalytics`.
-4. The resolver returns:
-   - `PrivateEndPoint`: base URL of the target service
-   - `Key`: API key for that service
-5. `ServiceRPCBase.Send` builds the final URL as:
-   `strings.TrimSuffix(service.PrivateEndPoint, "/") + endpoint`
-6. It adds headers:
-   - `X-API-KEY`
-   - `X-INTERNAL-NAME`
-7. The configured requester sends the HTTP request.
-8. `AnalyticsClient` parses the JSON response and returns Go structs/slices.
+## Run the included tests
 
-Code references:
+From the `servicerpc` module directory:
 
-- RPC base send logic: [client_factory.go](/home/uttam/openwifi_workspace/uttam-repos/ow-common-mods/servicerpc/common/client_factory.go:167)
-- Analytics client methods: [analytics.go](/home/uttam/openwifi_workspace/uttam-repos/ow-common-mods/servicerpc/analytics/analytics.go:32)
-
-## What `TestAnalyticsClient_E2E_HTTPCalls` Verifies
-
-The main test proves that three analytics client methods generate the expected outgoing HTTP calls.
-
-### 1. `GetTimepoints`
-
-Caller code:
-
-```go
-timepoints, err := client.GetTimepoints(context.Background(), TimepointRequest{
-    BoardID:    "board-1",
-    FromDate:   10,
-    EndDate:    20,
-    MaxRecords: 2,
-})
+```sh
+go test ./... -count=1
 ```
 
-Client method:
-- [analytics.go](/home/uttam/openwifi_workspace/uttam-repos/ow-common-mods/servicerpc/analytics/analytics.go:32)
-
-Outgoing request:
-
-```http
-GET /api/v1/board/board-1/timepoints?fromDate=10&endDate=20&maxRecords=2&statsOnly=false&pointsOnly=true&pointStatsOnly=true&LatestPerDevice=true
-X-API-KEY: e2e-api-key
-X-INTERNAL-NAME: e2e-caller
-```
-
-What the test checks:
-- path is `/api/v1/board/board-1/timepoints`
-- query contains at least:
-  - `fromDate=10`
-  - `endDate=20`
-  - `maxRecords=2`
-- required internal headers are present
-
-Mock upstream response:
-
-```json
-{
-  "points": [
-    [{"id":"1","boardId":"board-1","timestamp":10}],
-    [{"id":"2","boardId":"board-1","timestamp":20}]
-  ]
-}
-```
-
-Returned value:
-- The client flattens the nested `points` buckets into a single `[]TimepointsData`.
-
-### 2. `GetDeviceInfo`
-
-Caller code:
-
-```go
-devices, err := client.GetDeviceInfo(context.Background(), "board-1")
-```
-
-Client method:
-- [analytics.go](/home/uttam/openwifi_workspace/uttam-repos/ow-common-mods/servicerpc/analytics/analytics.go:104)
-
-Outgoing request:
-
-```http
-GET /api/v1/board/board-1/devices
-X-API-KEY: e2e-api-key
-X-INTERNAL-NAME: e2e-caller
-```
-
-Mock upstream response:
-
-```json
-{
-  "devices": [
-    {
-      "boardId": "board-1",
-      "serialNumber": "SER1"
-    }
-  ]
-}
-```
-
-Returned value:
-- The client unmarshals `devices` into `[]DeviceInfo`.
-
-### 3. `GetWifiClientHistoryMACs`
-
-Caller code:
-
-```go
-macs, err := client.GetWifiClientHistoryMACs(context.Background(), "board-1", 2, 0)
-```
-
-Client method:
-- [analytics.go](/home/uttam/openwifi_workspace/uttam-repos/ow-common-mods/servicerpc/analytics/analytics.go:134)
-
-Outgoing request:
-
-```http
-GET /api/v1/wifiClientHistory?macsOnly=true&boardId=board-1&limit=2&offset=0
-X-API-KEY: e2e-api-key
-X-INTERNAL-NAME: e2e-caller
-```
-
-Mock upstream response:
-
-```json
-{
-  "entries": ["aa:bb:cc:dd:ee:ff", "11:22:33:44:55:66"]
-}
-```
-
-Returned value:
-- The client unmarshals `entries` into `[]string`.
-
-## What `TestAnalyticsClient_E2E_PathEscaping` Verifies
-
-This test checks URL safety for path parameters.
-
-Input board ID:
-
-```text
- board ?x=1 
-```
-
-Expected outgoing path:
-
-```text
-/api/v1/board/board%20%3Fx=1/devices
-```
-
-Why this matters:
-- spaces are trimmed before escaping
-- special characters do not break the URL path
-- a board ID cannot inject extra query parameters or path segments
-
-Current code status:
-- `GetTimepoints` explicitly uses `url.PathEscape(strings.TrimSpace(req.BoardID))`
-- `GetDeviceInfo` currently builds `"/api/v1/board/"+boardID+"/devices"` directly
-- because of that, this E2E test currently exposes a mismatch between expected behavior and implementation
-
-Observed test result from `go test ./analytics`:
-
-```text
-expected path "/api/v1/board/board%20%3Fx=1/devices", got "/api/v1/board/%20board%20"
-```
-
-So this second test is useful as a regression test, but at the moment it is documenting a behavior that `GetDeviceInfo` does not yet fully implement.
-
-## Important Clarification
-
-This test shows how a service using `AnalyticsClient` calls the `owanalytics` service.
-
-It does not directly call multiple downstream services from inside the test itself.
-The "other service" here is the target analytics service resolved by service discovery and reached through `ServiceRPCBase.Send(...)`.
-
-## Request Sequence Summary
-
-```text
-Caller service
-  -> AnalyticsClient.GetTimepoints / GetDeviceInfo / GetWifiClientHistoryMACs
-  -> ServiceRPCBase.Send(...)
-  -> resolve("owanalytics")
-  -> build URL = PrivateEndPoint + endpoint
-  -> add X-API-KEY and X-INTERNAL-NAME
-  -> HTTP GET to owanalytics
-  -> parse JSON response
-  -> return typed Go value
-```
-
-## Files to Read Together
-
-- Test flow: [analytics_e2e_test.go](/home/uttam/openwifi_workspace/uttam-repos/ow-common-mods/servicerpc/analytics/analytics_e2e_test.go:22)
-- Client implementation: [analytics.go](/home/uttam/openwifi_workspace/uttam-repos/ow-common-mods/servicerpc/analytics/analytics.go:17)
-- Shared transport: [client_factory.go](/home/uttam/openwifi_workspace/uttam-repos/ow-common-mods/servicerpc/common/client_factory.go:19)
+This command runs the package tests described above. Live service validation
+requires a separate environment and is outside these tests' coverage.

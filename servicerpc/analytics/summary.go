@@ -64,7 +64,7 @@ func (c *userScopedClient) getDeviceSummary(
 	lookbackHours int,
 	authorization, operation string,
 ) (any, error) {
-	if err := validateDeviceSummaryRequest(routerID, authorization); err != nil {
+	if err := validateDeviceSummaryRequest(routerID, timestampTill, lookbackHours, authorization); err != nil {
 		return nil, err
 	}
 
@@ -78,4 +78,3 @@ func (c *userScopedClient) getDeviceSummary(
 
 	return c.getJSON(ctx, path, params, authorization, operation)
 }
-

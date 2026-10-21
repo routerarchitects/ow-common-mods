@@ -8,6 +8,7 @@
 The module currently exposes:
 - `AnalyticsClient` for `owanalytics`
 - `SecurityClient` for `owsec`
+- `UserScopedAnalyticsClient` for user-authorized analytics summary requests
 
 ## Core Design
 
@@ -22,7 +23,7 @@ The module currently exposes:
 
 ## Timeout Contract (Important)
 
-This module **does not apply an internal request timeout**.
+Internal RPC clients **do not apply an internal request timeout**.
 
 Caller context is the single source of cancellation and timeout behavior.
 Always pass a context with deadline/timeout (for example `context.WithTimeout`).
@@ -79,6 +80,68 @@ _ = timepoints
   - non-empty `boardID`
   - `limit > 0`
   - `offset >= 0`
+
+### User-scoped analytics
+
+New integrations should select an explicit endpoint mode:
+
+```go
+client, err := analytics.NewUserScopedClient(analytics.UserScopedConfig{
+    EndpointMode: analytics.EndpointModeDiscoveryRequired,
+    Resolver: common.NewDiscoveryResolver(discovery),
+    InternalName: discovery.Self().PublicEndPoint,
+    TLSRootCA: "/etc/ssl/analytics-ca.pem",
+})
+```
+
+`EndpointModeDiscoveryRequired` resolves `owanalytics` for each operation, validates
+its `PrivateEndPoint` and discovered key, and sends both internal RPC headers and
+the caller's unchanged Bearer header. `InternalName` must be the caller's advertised
+public HTTP(S) URL, not its application name. Missing or invalid records fail with
+typed application errors. `BaseURL` is ignored even if set; public endpoints and
+static URLs are never fallbacks after discovery, connection, TLS, or auth failures.
+The receiver must independently authenticate the service and the original user.
+
+`EndpointModeStandalone` requires an explicit `BaseURL`, never performs discovery,
+and sends only the original user authorization. Both explicit modes reject
+redirects, require Bearer syntax, and preserve request-scoped credentials. Client
+construction does not require a populated discovery store; lookup occurs per call.
+
+Migration: the five exported methods and interface are unchanged. Empty
+`EndpointMode` and `ServiceRpc.UserScopedAnalyticsClient` retain the existing
+static/public selection policy for compatibility with existing consumers; they
+must not be used for strict private discovery. Migrate discovery integrations to
+the explicit constructor above. Neither generic RPC calls nor the compatibility
+factory automatically acquire or forward a user's token. `APIClientError` retains
+typed causes through `Unwrap`, but its message and the MCP formatter omit raw
+transport errors and upstream bodies to prevent credential disclosure.
+
+Create the client with `rpc.UserScopedAnalyticsClient(baseURL, opts...)` or
+`analytics.NewUserScopedClient(cfg, opts...)`. All five summary methods require
+a nonempty router ID and authorization, an RFC3339 `timestampTill` (for example
+`2026-10-21T10:00:00Z`), and `lookbackHours > 0`. Timestamps may include fractional
+seconds and timezone offsets. Invalid inputs return `CodeInvalidInput` before
+any HTTP request; relative values such as `"now"` are rejected.
+
+Retryable failures get two retries by default (three total attempts), matching
+the Python MCP default. A positive `UserScopedConfig.MaxRetries` changes that
+count; zero or negative configuration values use the default. Options override
+the configuration. Disable retries explicitly through either constructor:
+
+```go
+client, err := rpc.UserScopedAnalyticsClient(baseURL, analytics.WithMaxRetries(0))
+```
+
+`WithMaxRetries(n)` selects an explicit retry count; nonpositive values disable
+retries. Only transport/read failures and HTTP 429, 500, 502, 503, and 504 are
+retried. HTTP 401 and 403 are not retried. Retries honor context cancellation,
+use exponential backoff with jitter, and respect Retry-After up to MaxRetryDelay.
+The per-attempt timeout defaults to five seconds; callers can bound the entire
+operation with a context deadline. `FormatAnalyticsErrorMessage` exposes only
+the HTTP status or a generic service-unavailable message.
+
+See [Analytics HTTP test coverage](analytics/ANALYTICS_E2E_TEST_FLOW.md) for the
+included regression and integration tests.
 
 ### Common transport (`servicerpc/common`)
 - `NewServiceRPCBase(...)`
