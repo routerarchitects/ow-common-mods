@@ -178,7 +178,7 @@ func TestUserScopedClient_BearerTokenAndNoInternalAPIKey(t *testing.T) {
 	}
 
 	// Test 1: Full Bearer header
-	_, err = client.GetGatewayWifiTemp(context.Background(), "gw-1", "now", 1, "Bearer original-user-token-xyz")
+	_, err = client.GetGatewayWifiTemp(context.Background(), "gw-1", "2026-10-21T10:00:00Z", 1, "Bearer original-user-token-xyz")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestUserScopedClient_BearerTokenAndNoInternalAPIKey(t *testing.T) {
 	}
 
 	// Test 2: Raw token without "Bearer " prefix gets formatted properly
-	_, err = client.GetGatewayWifiTemp(context.Background(), "gw-1", "now", 1, "raw-token-123")
+	_, err = client.GetGatewayWifiTemp(context.Background(), "gw-1", "2026-10-21T10:00:00Z", 1, "raw-token-123")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestUserScopedClient_ConcurrentCallsDifferentTokens(t *testing.T) {
 			rid := fmt.Sprintf("router-%d", idx)
 			tok := fmt.Sprintf("Bearer token-user-%d", idx)
 
-			res, err := client.GetGatewayFreeMemory(context.Background(), rid, "now", 1, tok)
+			res, err := client.GetGatewayFreeMemory(context.Background(), rid, "2026-10-21T10:00:00Z", 1, tok)
 			if err != nil {
 				errCh <- fmt.Errorf("call %d failed: %w", idx, err)
 				return
@@ -289,7 +289,7 @@ func TestUserScopedClient_HTTP401And403Handling(t *testing.T) {
 				t.Fatalf("failed to create client: %v", err)
 			}
 
-			_, err = client.GetGatewayFreeMemory(context.Background(), "gw-1", "now", 1, "Bearer tok")
+			_, err = client.GetGatewayFreeMemory(context.Background(), "gw-1", "2026-10-21T10:00:00Z", 1, "Bearer tok")
 			if err == nil {
 				t.Fatalf("expected error for status %d, got nil", code)
 			}
@@ -308,11 +308,11 @@ func TestUserScopedClient_HTTP401And403Handling(t *testing.T) {
 			}
 
 			formatted := analytics.FormatAnalyticsErrorMessage(apiErr)
-			if !strings.Contains(formatted, fmt.Sprintf("status=%d", code)) {
-				t.Errorf("formatted message %q missing status=%d", formatted, code)
+			if want := fmt.Sprintf("OWANALYTICS request failed: status=%d", code); formatted != want {
+				t.Errorf("formatted message = %q, want %q", formatted, want)
 			}
-			if !strings.Contains(formatted, "access_denied") {
-				t.Errorf("formatted message %q missing error payload", formatted)
+			if body, ok := apiErr.ResponseBody.(map[string]any); !ok || body["error"] != "access_denied" {
+				t.Errorf("expected structured error to retain upstream response, got %v", apiErr.ResponseBody)
 			}
 		})
 	}
@@ -356,7 +356,7 @@ func TestUserScopedClient_RetryBehavior(t *testing.T) {
 			t.Fatalf("failed to create client: %v", err)
 		}
 
-		res, err := client.GetGatewayFreeMemory(context.Background(), "gw-1", "now", 1, "Bearer tok")
+		res, err := client.GetGatewayFreeMemory(context.Background(), "gw-1", "2026-10-21T10:00:00Z", 1, "Bearer tok")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -411,7 +411,7 @@ func TestUserScopedClient_RetryBehavior(t *testing.T) {
 			t.Fatalf("failed to create client: %v", err)
 		}
 
-		_, err = client.GetGatewayWifiTemp(context.Background(), "gw-1", "now", 1, "Bearer tok")
+		_, err = client.GetGatewayWifiTemp(context.Background(), "gw-1", "2026-10-21T10:00:00Z", 1, "Bearer tok")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -454,7 +454,7 @@ func TestUserScopedClient_RetryBehavior(t *testing.T) {
 			t.Fatalf("failed to create client: %v", err)
 		}
 
-		_, err = client.GetGatewayWifiTemp(context.Background(), "gw-1", "now", 1, "Bearer tok")
+		_, err = client.GetGatewayWifiTemp(context.Background(), "gw-1", "2026-10-21T10:00:00Z", 1, "Bearer tok")
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}
@@ -486,7 +486,7 @@ func TestUserScopedClient_ContextCancellation(t *testing.T) {
 		t.Fatalf("failed to create client: %v", err)
 	}
 
-	_, err = client.GetGatewayFreeMemory(ctx, "gw-1", "now", 1, "Bearer tok")
+	_, err = client.GetGatewayFreeMemory(ctx, "gw-1", "2026-10-21T10:00:00Z", 1, "Bearer tok")
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("expected context.Canceled, got %v", err)
 	}
@@ -511,7 +511,7 @@ func TestUserScopedClient_JSONResponseCompatibility(t *testing.T) {
 		t.Fatalf("failed to create client: %v", err)
 	}
 
-	res, err := client.GetDeviceBandwidthConsumption(context.Background(), "gw-1", "now", 1, "Bearer tok")
+	res, err := client.GetDeviceBandwidthConsumption(context.Background(), "gw-1", "2026-10-21T10:00:00Z", 1, "Bearer tok")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -562,7 +562,7 @@ func TestUserScopedClient_StandaloneMode(t *testing.T) {
 		t.Fatalf("failed to create client: %v", err)
 	}
 
-	res, err := client.GetGatewayOfflineCount(context.Background(), "gw-1", "now", 1, "Bearer tok")
+	res, err := client.GetGatewayOfflineCount(context.Background(), "gw-1", "2026-10-21T10:00:00Z", 1, "Bearer tok")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -598,7 +598,7 @@ func TestUserScopedClient_DiscoveryEnabledResolution(t *testing.T) {
 		t.Fatalf("failed to create client A: %v", err)
 	}
 
-	res, err := clientA.GetGatewayWifiTemp(context.Background(), "gw-1", "now", 1, "Bearer tok")
+	res, err := clientA.GetGatewayWifiTemp(context.Background(), "gw-1", "2026-10-21T10:00:00Z", 1, "Bearer tok")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -624,7 +624,7 @@ func TestUserScopedClient_DiscoveryEnabledResolution(t *testing.T) {
 		t.Fatalf("failed to create client B: %v", err)
 	}
 
-	_, err = clientB.GetGatewayWifiTemp(context.Background(), "gw-1", "now", 1, "Bearer tok")
+	_, err = clientB.GetGatewayWifiTemp(context.Background(), "gw-1", "2026-10-21T10:00:00Z", 1, "Bearer tok")
 	if err == nil {
 		t.Fatal("expected error when discovered service lacks verified public endpoint, got nil")
 	}
@@ -719,7 +719,7 @@ func TestUserScopedClient_URLEscaping(t *testing.T) {
 		t.Fatalf("failed to create client: %v", err)
 	}
 
-	_, err = client.GetGatewayFreeMemory(context.Background(), "router/123 ?#", "now", 1, "Bearer tok")
+	_, err = client.GetGatewayFreeMemory(context.Background(), "router/123 ?#", "2026-10-21T10:00:00Z", 1, "Bearer tok")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -730,37 +730,70 @@ func TestUserScopedClient_URLEscaping(t *testing.T) {
 	}
 }
 
-// Sensitive info redaction verification
-func TestFormatAnalyticsErrorMessage_RedactsSensitiveData(t *testing.T) {
+func TestFormatAnalyticsErrorMessage_OmitsUpstreamBody(t *testing.T) {
 	statusCode := 403
-	apiErr := &analytics.APIClientError{
-		Operation:  "get_gateway_free_memory",
-		StatusCode: &statusCode,
-		ResponseBody: map[string]any{
-			"error":        "forbidden",
-			"message":      "access denied",
-			"token":        "secret-user-token",
-			"password":     "super-secret-password",
-			"api_key":      "secret-api-key",
-			"public_field": "visible",
+	for _, tc := range []struct {
+		name string
+		body any
+	}{
+		{
+			name: "top-level credentials and arbitrary fields",
+			body: map[string]any{
+				"token":        "secret-user-token",
+				"password":     "super-secret-password",
+				"api_key":      "secret-api-key",
+				"public_field": "sensitive despite its name",
+			},
 		},
+		{
+			name: "nested token",
+			body: map[string]any{"error": "failed", "details": map[string]any{"token": "sensitive-token"}},
+		},
+		{
+			name: "nested array",
+			body: map[string]any{"details": []any{map[string]any{"Authorization": "Bearer secret"}}},
+		},
+		{
+			name: "structured error and message",
+			body: map[string]any{
+				"error":   map[string]any{"token": "secret-token"},
+				"message": []any{map[string]any{"password": "secret-password"}},
+			},
+		},
+		{
+			name: "credentials in error and message strings",
+			body: map[string]any{"error": "Bearer secret-token", "message": "password=secret-password"},
+		},
+		{name: "plain text", body: "request failed for Bearer secret-token"},
+		{name: "JSON string", body: `{"token":"secret-token"}`},
+		{name: "array body", body: []any{map[string]any{"token": "secret-token"}}},
+		{name: "empty body"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			apiErr := &analytics.APIClientError{
+				Operation:    "operation-with-sensitive-data",
+				StatusCode:   &statusCode,
+				ResponseBody: tc.body,
+				Err:          errors.New("transport error with secret-token"),
+			}
+			if got, want := analytics.FormatAnalyticsErrorMessage(apiErr), "OWANALYTICS request failed: status=403"; got != want {
+				t.Errorf("formatted message = %q, want %q", got, want)
+			}
+		})
 	}
+}
 
-	msg := analytics.FormatAnalyticsErrorMessage(apiErr)
-	if strings.Contains(msg, "secret-user-token") {
-		t.Errorf("token was not redacted: %s", msg)
+func TestFormatAnalyticsErrorMessage_WithoutStatus(t *testing.T) {
+	if got := analytics.FormatAnalyticsErrorMessage(nil); got != "" {
+		t.Errorf("nil error formatted as %q", got)
 	}
-	if strings.Contains(msg, "super-secret-password") {
-		t.Errorf("password was not redacted: %s", msg)
+	apiErr := &analytics.APIClientError{
+		Operation:    "operation-with-sensitive-data",
+		ResponseBody: "secret-response",
+		Err:          errors.New("transport error with secret-token"),
 	}
-	if strings.Contains(msg, "secret-api-key") {
-		t.Errorf("api_key was not redacted: %s", msg)
-	}
-	if !strings.Contains(msg, "******") {
-		t.Errorf("expected ****** redaction marker in: %s", msg)
-	}
-	if !strings.Contains(msg, "visible") {
-		t.Errorf("expected non-sensitive field visible in: %s", msg)
+	if got, want := analytics.FormatAnalyticsErrorMessage(apiErr), "OWANALYTICS request failed: service unavailable"; got != want {
+		t.Errorf("formatted message = %q, want %q", got, want)
 	}
 }
 
@@ -1068,7 +1101,7 @@ func TestUserScopedClient_Regression_MissingBaseURLAndMissingResolverReturnError
 		t.Fatalf("unexpected client creation error: %v", err)
 	}
 
-	_, err = client.GetGatewayFreeMemory(context.Background(), "gw-1", "now", 1, "Bearer tok")
+	_, err = client.GetGatewayFreeMemory(context.Background(), "gw-1", "2026-10-21T10:00:00Z", 1, "Bearer tok")
 	if err == nil {
 		t.Fatal("expected error when BaseURL and resolver are both missing, got nil")
 	}
@@ -1096,7 +1129,7 @@ func TestUserScopedClient_Regression_DiscoveryFailureReturnsErrorWhenNoExplicitU
 		t.Fatalf("unexpected client creation error: %v", err)
 	}
 
-	_, err = client.GetDeviceRssiQuality(context.Background(), "gw-1", "now", 1, "Bearer tok")
+	_, err = client.GetDeviceRssiQuality(context.Background(), "gw-1", "2026-10-21T10:00:00Z", 1, "Bearer tok")
 	if err == nil {
 		t.Fatal("expected error when discovery fails, got nil")
 	}
@@ -1131,7 +1164,7 @@ func TestUserScopedClient_Regression_DiscoveredInstanceWithOnlyPrivateEndPointRe
 		t.Fatalf("unexpected client creation error: %v", err)
 	}
 
-	_, err = client.GetGatewayOfflineCount(context.Background(), "gw-1", "now", 1, "Bearer tok")
+	_, err = client.GetGatewayOfflineCount(context.Background(), "gw-1", "2026-10-21T10:00:00Z", 1, "Bearer tok")
 	if err == nil {
 		t.Fatal("expected error when discovered service has only PrivateEndPoint, got nil")
 	}
@@ -1190,7 +1223,7 @@ func TestUserScopedClient_Regression_InvalidURLConfigurationsRejected(t *testing
 			}
 
 			// If client creation allowed it, request must reject it without falling back to discovery
-			_, err = client.GetGatewayFreeMemory(context.Background(), "gw-1", "now", 1, "Bearer tok")
+			_, err = client.GetGatewayFreeMemory(context.Background(), "gw-1", "2026-10-21T10:00:00Z", 1, "Bearer tok")
 			if err == nil {
 				t.Fatalf("expected error for invalid BaseURL %q, got nil", tc.url)
 			}
@@ -1214,7 +1247,7 @@ func TestUserScopedClient_Regression_InvalidURLConfigurationsRejected(t *testing
 				t.Fatalf("unexpected error creating client with resolver: %v", err)
 			}
 
-			_, err = client.GetGatewayFreeMemory(context.Background(), "gw-1", "now", 1, "Bearer tok")
+			_, err = client.GetGatewayFreeMemory(context.Background(), "gw-1", "2026-10-21T10:00:00Z", 1, "Bearer tok")
 			if err == nil {
 				t.Fatalf("expected error for invalid discovered endpoint %q, got nil", tc.url)
 			}
@@ -1273,7 +1306,7 @@ func TestUserScopedClient_Regression_BearerTokenForwardedOnlyToSelectedPublicEnd
 		t.Fatalf("failed to create client: %v", err)
 	}
 
-	res, err := client.GetGatewayFreeMemory(context.Background(), "gw-sec-1", "now", 1, "Bearer secret-user-token")
+	res, err := client.GetGatewayFreeMemory(context.Background(), "gw-sec-1", "2026-10-21T10:00:00Z", 1, "Bearer secret-user-token")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1445,15 +1478,15 @@ func TestUserScopedClient_Regression_ConcurrentRequestsRemainSafe(t *testing.T) 
 			// Interleave all 5 user-scoped methods
 			switch idx % 5 {
 			case 0:
-				res, callErr = client.GetGatewayFreeMemory(context.Background(), rid, "now", 1, tok)
+				res, callErr = client.GetGatewayFreeMemory(context.Background(), rid, "2026-10-21T10:00:00Z", 1, tok)
 			case 1:
-				res, callErr = client.GetGatewayWifiTemp(context.Background(), rid, "now", 1, tok)
+				res, callErr = client.GetGatewayWifiTemp(context.Background(), rid, "2026-10-21T10:00:00Z", 1, tok)
 			case 2:
-				res, callErr = client.GetDeviceBandwidthConsumption(context.Background(), rid, "now", 1, tok)
+				res, callErr = client.GetDeviceBandwidthConsumption(context.Background(), rid, "2026-10-21T10:00:00Z", 1, tok)
 			case 3:
-				res, callErr = client.GetDeviceRssiQuality(context.Background(), rid, "now", 1, tok)
+				res, callErr = client.GetDeviceRssiQuality(context.Background(), rid, "2026-10-21T10:00:00Z", 1, tok)
 			case 4:
-				res, callErr = client.GetGatewayOfflineCount(context.Background(), rid, "now", 1, tok)
+				res, callErr = client.GetGatewayOfflineCount(context.Background(), rid, "2026-10-21T10:00:00Z", 1, tok)
 			}
 
 			if callErr != nil {
@@ -1487,4 +1520,3 @@ func TestUserScopedClient_Regression_ConcurrentRequestsRemainSafe(t *testing.T) 
 		}
 	}
 }
-

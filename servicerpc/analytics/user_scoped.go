@@ -26,6 +26,14 @@ import (
 // UserScopedOption configures userScopedClient.
 type UserScopedOption func(*userScopedClient)
 
+// WithMaxRetries overrides the retry count, including the configured default.
+// A nonpositive value disables retries, allowing only the initial HTTP attempt.
+func WithMaxRetries(maxRetries int) UserScopedOption {
+	return func(c *userScopedClient) {
+		c.maxRetries = max(0, maxRetries)
+	}
+}
+
 // WithHTTPClient overrides the internal http.Client (e.g. for testing with httptest).
 func WithHTTPClient(client *http.Client) UserScopedOption {
 	return func(c *userScopedClient) {
@@ -101,7 +109,7 @@ func NewUserScopedClient(cfg UserScopedConfig, opts ...UserScopedOption) (UserSc
 	}
 
 	maxRetries := cfg.MaxRetries
-	if maxRetries < 0 {
+	if maxRetries <= 0 {
 		maxRetries = 2
 	}
 
@@ -581,4 +589,3 @@ func buildURL(baseURL, path string, params map[string]string) (*url.URL, error) 
 
 	return u, nil
 }
-

@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -98,7 +99,7 @@ func TestUserScopedAnalyticsClient_TLSRootCA(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			result, err := client.GetGatewayFreeMemory(ctx, "gw-1", "now", 1, "Bearer test-token")
+			result, err := client.GetGatewayFreeMemory(ctx, "gw-1", "2026-10-21T10:00:00Z", 1, "Bearer test-token")
 			if !tc.trusted {
 				var unknownAuthority x509.UnknownAuthorityError
 				if !errors.As(err, &unknownAuthority) {
@@ -111,6 +112,44 @@ func TestUserScopedAnalyticsClient_TLSRootCA(t *testing.T) {
 			}
 			if body, ok := result.(map[string]any); !ok || body["trusted"] != true {
 				t.Fatalf("unexpected response: %v", result)
+			}
+		})
+	}
+}
+
+func TestUserScopedAnalyticsClient_RetryPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		opts     []analytics.UserScopedOption
+		attempts int32
+	}{
+		{name: "default", attempts: 3},
+		{name: "disabled", opts: []analytics.UserScopedOption{analytics.WithMaxRetries(0)}, attempts: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var attempts atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				attempts.Add(1)
+				w.WriteHeader(http.StatusServiceUnavailable)
+			}))
+			defer server.Close()
+			rpc, err := NewServiceRpc(&servicediscovery.Discovery{}, ServiceRpcConfig{InternalName: "caller"}, nil)
+			if err != nil {
+				t.Fatalf("create service RPC: %v", err)
+			}
+			opts := append([]analytics.UserScopedOption{
+				analytics.WithSleeper(func(context.Context, time.Duration) error { return nil }),
+			}, tc.opts...)
+			client, err := rpc.UserScopedAnalyticsClient(server.URL, opts...)
+			if err != nil {
+				t.Fatalf("create user-scoped client: %v", err)
+			}
+			defer client.(io.Closer).Close()
+			if _, err := client.GetGatewayFreeMemory(context.Background(), "gw-1", "2026-10-21T10:00:00Z", 1, "Bearer tok"); err == nil {
+				t.Fatal("expected error after retry exhaustion")
+			}
+			if got := attempts.Load(); got != tc.attempts {
+				t.Errorf("HTTP attempts = %d, want %d", got, tc.attempts)
 			}
 		})
 	}

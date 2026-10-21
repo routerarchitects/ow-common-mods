@@ -2,6 +2,7 @@ package analytics
 
 import (
 	"strings"
+	"time"
 
 	"github.com/routerarchitects/ra-common-mods/apperror"
 )
@@ -38,12 +39,18 @@ func validateWifiClientHistoryRequest(boardID string, limit, offset int) error {
 	return nil
 }
 
-func validateDeviceSummaryRequest(routerID, authorization string) error {
+func validateDeviceSummaryRequest(routerID, timestampTill string, lookbackHours int, authorization string) error {
 	if strings.TrimSpace(routerID) == "" {
 		return apperror.New(apperror.CodeInvalidInput, "routerID is required")
 	}
 	if strings.TrimSpace(authorization) == "" {
 		return apperror.New(apperror.CodeInvalidInput, "authorization is required")
+	}
+	if _, err := time.Parse(time.RFC3339, timestampTill); err != nil {
+		return apperror.New(apperror.CodeInvalidInput, "timestampTill must be a valid RFC3339 timestamp")
+	}
+	if lookbackHours <= 0 {
+		return apperror.New(apperror.CodeInvalidInput, "lookbackHours must be greater than 0")
 	}
 	return nil
 }
