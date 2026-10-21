@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -56,7 +57,7 @@ func WithClock(clk ClockFunc) UserScopedOption {
 // WithBaseURL sets or overrides the base URL.
 func WithBaseURL(baseURL string) UserScopedOption {
 	return func(c *userScopedClient) {
-		c.baseURL = strings.TrimRight(baseURL, "/")
+		c.baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	}
 }
 
@@ -118,7 +119,7 @@ func NewUserScopedClient(cfg UserScopedConfig, opts ...UserScopedOption) (UserSc
 
 	c := &userScopedClient{
 		cfg:           cfg,
-		baseURL:       strings.TrimRight(cfg.BaseURL, "/"),
+		baseURL:       strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/"),
 		resolver:      resolver,
 		logger:        cfg.Logger,
 		timeout:       timeout,
@@ -156,9 +157,82 @@ func NewUserScopedClient(cfg UserScopedConfig, opts ...UserScopedOption) (UserSc
 		if err := c.initHTTP(); err != nil {
 			return nil, err
 		}
+	} else {
+		origCheckRedirect := c.client.CheckRedirect
+		cloned := *c.client
+		cloned.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			if len(via) > 0 {
+				initialURL := via[0].URL
+				if !strings.EqualFold(initialURL.Scheme, req.URL.Scheme) || !strings.EqualFold(initialURL.Host, req.URL.Host) {
+					req.Header.Del("Authorization")
+				}
+			}
+			if origCheckRedirect != nil {
+				return origCheckRedirect(req, via)
+			}
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			return nil
+		}
+		c.client = &cloned
+	}
+
+	if strings.TrimSpace(c.baseURL) != "" {
+		if _, err := validateEndpointURL(c.baseURL); err != nil {
+			return nil, err
+		}
 	}
 
 	return c, nil
+}
+
+func checkRedirectPolicy(req *http.Request, via []*http.Request) error {
+	if len(via) > 0 {
+		initialURL := via[0].URL
+		if !strings.EqualFold(initialURL.Scheme, req.URL.Scheme) || !strings.EqualFold(initialURL.Host, req.URL.Host) {
+			req.Header.Del("Authorization")
+		}
+	}
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	return nil
+}
+
+func validateEndpointURL(rawURL string) (*url.URL, error) {
+	trimmed := strings.TrimSpace(rawURL)
+	if trimmed == "" {
+		return nil, apperror.New(apperror.CodeInvalidInput, "endpoint URL is empty")
+	}
+
+	if strings.Contains(trimmed, "#") {
+		return nil, apperror.New(apperror.CodeInvalidInput, fmt.Sprintf("invalid endpoint URL %q: URL must not contain fragments", rawURL))
+	}
+
+	u, err := url.Parse(trimmed)
+	if err != nil {
+		return nil, apperror.Wrap(apperror.CodeInvalidInput, fmt.Sprintf("invalid endpoint URL %q", rawURL), err)
+	}
+
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return nil, apperror.New(apperror.CodeInvalidInput, fmt.Sprintf("invalid endpoint URL %q: scheme must be http or https", rawURL))
+	}
+
+	if u.Hostname() == "" {
+		return nil, apperror.New(apperror.CodeInvalidInput, fmt.Sprintf("invalid endpoint URL %q: missing hostname", rawURL))
+	}
+
+	if u.User != nil {
+		return nil, apperror.New(apperror.CodeInvalidInput, fmt.Sprintf("invalid endpoint URL %q: embedded credentials are not allowed", rawURL))
+	}
+
+	if u.Fragment != "" {
+		return nil, apperror.New(apperror.CodeInvalidInput, fmt.Sprintf("invalid endpoint URL %q: fragments are not allowed", rawURL))
+	}
+
+	return u, nil
 }
 
 func (c *userScopedClient) initHTTP() error {
@@ -194,7 +268,8 @@ func (c *userScopedClient) initHTTP() error {
 	}
 
 	c.client = &http.Client{
-		Transport: c.transport,
+		Transport:     c.transport,
+		CheckRedirect: checkRedirectPolicy,
 	}
 
 	return nil
@@ -212,30 +287,37 @@ func (c *userScopedClient) Close() error {
 }
 
 func (c *userScopedClient) resolveBaseURL() (string, error) {
+	// 1. If an explicit BaseURL is configured, use it.
+	if strings.TrimSpace(c.baseURL) != "" {
+		if _, err := validateEndpointURL(c.baseURL); err != nil {
+			return "", err
+		}
+		return strings.TrimRight(strings.TrimSpace(c.baseURL), "/"), nil
+	}
+
+	// 2. Otherwise, resolve OWANALYTICS using the existing service discovery resolver.
 	if c.resolver != nil {
 		inst, err := c.resolver.Resolve(serviceName)
 		if err != nil {
-			if c.baseURL != "" {
-				return c.baseURL, nil
-			}
 			return "", err
 		}
 		if inst != nil {
-			if strings.TrimSpace(inst.PublicEndPoint) != "" {
-				return strings.TrimRight(inst.PublicEndPoint, "/"), nil
-			}
-			if c.baseURL != "" {
-				return c.baseURL, nil
+			// 3. If discovery returns a valid PublicEndPoint, use it.
+			// 5. Never substitute PrivateEndPoint for user-scoped requests.
+			publicEndpoint := strings.TrimSpace(inst.PublicEndPoint)
+			if publicEndpoint != "" {
+				if _, err := validateEndpointURL(publicEndpoint); err != nil {
+					return "", err
+				}
+				return strings.TrimRight(publicEndpoint, "/"), nil
 			}
 			return "", apperror.New(apperror.CodeInvalidInput, "discovered owanalytics service does not expose a verified public endpoint for user-scoped requests")
 		}
+		return "", apperror.New(apperror.CodeInvalidInput, "discovered owanalytics service instance is nil")
 	}
 
-	if strings.TrimSpace(c.baseURL) == "" {
-		return "", apperror.New(apperror.CodeInvalidInput, "no baseURL configured for standalone analytics client")
-	}
-
-	return c.baseURL, nil
+	// 4. If neither source provides a valid endpoint, return an appropriate error.
+	return "", apperror.New(apperror.CodeInvalidInput, "no baseURL configured and no service resolver available for user-scoped analytics client")
 }
 
 func (c *userScopedClient) getJSON(

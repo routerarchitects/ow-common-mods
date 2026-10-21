@@ -93,7 +93,7 @@ type ClockFunc func() time.Time
 
 // UserScopedConfig encapsulates configuration for UserScopedAnalyticsClient.
 type UserScopedConfig struct {
-	// BaseURL specifies the explicit base URL for standalone mode (e.g. "https://127.0.0.1:16009").
+	// BaseURL specifies an explicit base URL (e.g. "https://127.0.0.1:16009") which takes precedence over discovery.
 	BaseURL string
 
 	// Discovery optionally provides service discovery for discovery-enabled mode.
