@@ -8,7 +8,6 @@
 The module currently exposes:
 - `AnalyticsClient` for `owanalytics`
 - `SecurityClient` for `owsec`
-- `UserScopedAnalyticsClient` for user-authorized analytics summary requests
 
 ## Core Design
 
@@ -23,7 +22,7 @@ The module currently exposes:
 
 ## Timeout Contract (Important)
 
-Internal RPC clients **do not apply an internal request timeout**.
+This module **does not apply an internal request timeout**.
 
 Caller context is the single source of cancellation and timeout behavior.
 Always pass a context with deadline/timeout (for example `context.WithTimeout`).
@@ -60,6 +59,9 @@ _ = timepoints
 
 ### Top-level package (`servicerpc`)
 - `NewServiceRpc(discovery, cfg, logger) (*ServiceRpc, error)`
+- `NewServiceRpcWithBase(base) *ServiceRpc` for dependency injection
+- `(*ServiceRpc).Base()`
+- `(*ServiceRpc).Send(ctx, method, endpoint, body, serviceName)`
 - `(*ServiceRpc).AnalyticsClient()`
 - `(*ServiceRpc).SecurityClient()`
 
@@ -81,40 +83,17 @@ _ = timepoints
   - `limit > 0`
   - `offset >= 0`
 
-### User-scoped analytics
-
-Create the client with `rpc.UserScopedAnalyticsClient(baseURL, opts...)` or
-`analytics.NewUserScopedClient(cfg, opts...)`. All five summary methods require
-a nonempty router ID and authorization, an RFC3339 `timestampTill` (for example
-`2026-10-21T10:00:00Z`), and `lookbackHours > 0`. Timestamps may include fractional
-seconds and timezone offsets. Invalid inputs return `CodeInvalidInput` before
-any HTTP request; relative values such as `"now"` are rejected.
-
-Retryable failures get two retries by default (three total attempts), matching
-the Python MCP default. A positive `UserScopedConfig.MaxRetries` changes that
-count; zero or negative configuration values use the default. Options override
-the configuration. Disable retries explicitly through either constructor:
-
-```go
-client, err := rpc.UserScopedAnalyticsClient(baseURL, analytics.WithMaxRetries(0))
-```
-
-`WithMaxRetries(n)` selects an explicit retry count; nonpositive values disable
-retries. Only transport/read failures and HTTP 429, 500, 502, 503, and 504 are
-retried. HTTP 401 and 403 are not retried. Retries honor context cancellation,
-use exponential backoff with jitter, and respect Retry-After up to MaxRetryDelay.
-The per-attempt timeout defaults to five seconds; callers can bound the entire
-operation with a context deadline. `FormatAnalyticsErrorMessage` exposes only
-the HTTP status or a generic service-unavailable message.
-
-See [Analytics HTTP test coverage](analytics/ANALYTICS_E2E_TEST_FLOW.md) for the
-included regression and integration tests.
-
 ### Common transport (`servicerpc/common`)
 - `NewServiceRPCBase(...)`
 - `NewServiceRPCBaseWithDeps(...)`
 - `(*ServiceRPCBase).Send(...)`
 - `(*ServiceRPCBase).Logger()`
+- `(*ServiceRPCBase).Resolver()`
+
+`common.ServiceInstance` exposes `Key`, `PrivateEndPoint`, and `PublicEndPoint`.
+Internal RPC uses the private endpoint and service key. Applications can reuse
+`common.NewDiscoveryResolver` for service metadata while owning their own
+service-specific HTTP clients, authorization policies, and response handling.
 
 ## Extension Points
 

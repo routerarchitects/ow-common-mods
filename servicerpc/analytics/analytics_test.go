@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/routerarchitects/ow-common-mods/servicerpc/common"
 	"github.com/routerarchitects/ra-common-mods/apperror"
@@ -453,5 +456,142 @@ func TestGetTimepoints_Validation(t *testing.T) {
 				t.Fatalf("expected invalid input, got %s", got)
 			}
 		})
+	}
+}
+
+func TestExistingInternalAnalyticsRPC_RemainsFunctional(t *testing.T) {
+	var receivedAuth, receivedInternalName, receivedApiKey string
+
+	internalServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedAuth = r.Header.Get("Authorization")
+		receivedApiKey = r.Header.Get("X-API-KEY")
+		receivedInternalName = r.Header.Get("X-INTERNAL-NAME")
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"devices":[{"boardId":"b1","serialNumber":"SER123"}]}`))
+	}))
+	defer internalServer.Close()
+
+	resolver := &mockResolver{
+		instance: &common.ServiceInstance{
+			Key:             "service-internal-api-key",
+			PrivateEndPoint: internalServer.URL,
+		},
+	}
+
+	requester, err := common.NewFiberRequester("")
+	if err != nil {
+		t.Fatalf("failed to create fiber requester: %v", err)
+	}
+
+	base, err := common.NewServiceRPCBaseWithDeps(
+		resolver,
+		requester,
+		"mango-mcp-server",
+		slog.Default(),
+	)
+	if err != nil {
+		t.Fatalf("failed to create base: %v", err)
+	}
+
+	internalClient, err := NewAnalyticsClient(base)
+	if err != nil {
+		t.Fatalf("failed to create internal analytics client: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	devices, err := internalClient.GetDeviceInfo(ctx, "b1")
+	if err != nil {
+		t.Fatalf("GetDeviceInfo failed: %v", err)
+	}
+
+	if len(devices) != 1 || devices[0].SerialNumber != "SER123" {
+		t.Errorf("unexpected devices response: %v", devices)
+	}
+
+	// Verify internal RPC headers
+	if receivedApiKey != "service-internal-api-key" {
+		t.Errorf("expected X-API-KEY 'service-internal-api-key', got %q", receivedApiKey)
+	}
+	if receivedInternalName != "mango-mcp-server" {
+		t.Errorf("expected X-INTERNAL-NAME 'mango-mcp-server', got %q", receivedInternalName)
+	}
+	if receivedAuth != "" {
+		t.Errorf("expected Authorization empty for internal RPC, got %q", receivedAuth)
+	}
+}
+
+func TestInternalAnalyticsRPC_UsesPrivateEndPoint(t *testing.T) {
+	var receivedAuth, receivedInternalName, receivedApiKey, receivedHost string
+
+	internalServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedHost = r.Host
+		receivedAuth = r.Header.Get("Authorization")
+		receivedApiKey = r.Header.Get("X-API-KEY")
+		receivedInternalName = r.Header.Get("X-INTERNAL-NAME")
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"devices":[{"boardId":"b2","serialNumber":"INTERNAL-SER-456"}]}`))
+	}))
+	defer internalServer.Close()
+
+	// Instance provides BOTH PrivateEndPoint and a distinct PublicEndPoint.
+	// Internal RPC must strictly use PrivateEndPoint and internal auth headers.
+	resolver := &mockResolver{
+		instance: &common.ServiceInstance{
+			Key:             "service-internal-api-key-999",
+			PrivateEndPoint: internalServer.URL,
+			PublicEndPoint:  "https://public.example.com:16009",
+		},
+	}
+
+	requester, err := common.NewFiberRequester("")
+	if err != nil {
+		t.Fatalf("failed to create fiber requester: %v", err)
+	}
+
+	base, err := common.NewServiceRPCBaseWithDeps(
+		resolver,
+		requester,
+		"internal-caller-service",
+		slog.Default(),
+	)
+	if err != nil {
+		t.Fatalf("failed to create base: %v", err)
+	}
+
+	internalClient, err := NewAnalyticsClient(base)
+	if err != nil {
+		t.Fatalf("failed to create internal client: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	devices, err := internalClient.GetDeviceInfo(ctx, "b2")
+	if err != nil {
+		t.Fatalf("GetDeviceInfo failed: %v", err)
+	}
+
+	if len(devices) != 1 || devices[0].SerialNumber != "INTERNAL-SER-456" {
+		t.Errorf("unexpected devices response: %v", devices)
+	}
+
+	internalURL, _ := url.Parse(internalServer.URL)
+	if receivedHost != internalURL.Host {
+		t.Errorf("expected destination host %q, got %q", internalURL.Host, receivedHost)
+	}
+	if receivedApiKey != "service-internal-api-key-999" {
+		t.Errorf("expected X-API-KEY 'service-internal-api-key-999', got %q", receivedApiKey)
+	}
+	if receivedInternalName != "internal-caller-service" {
+		t.Errorf("expected X-INTERNAL-NAME 'internal-caller-service', got %q", receivedInternalName)
+	}
+	if receivedAuth != "" {
+		t.Errorf("expected Authorization empty for internal RPC, got %q", receivedAuth)
 	}
 }

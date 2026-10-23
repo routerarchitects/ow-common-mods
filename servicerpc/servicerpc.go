@@ -13,8 +13,7 @@ import (
 )
 
 type ServiceRpc struct {
-	deps      *common.ServiceRPCBase
-	tlsRootCA string
+	deps *common.ServiceRPCBase
 }
 
 // NewServiceRpc constructs service clients backed by discovery + HTTP requester.
@@ -30,7 +29,7 @@ func NewServiceRpc(
 	if err != nil {
 		return nil, err
 	}
-	return &ServiceRpc{deps: base, tlsRootCA: cfg.TLSRootCA}, nil
+	return &ServiceRpc{deps: base}, nil
 }
 
 // NewServiceRpcWithBase constructs a ServiceRpc instance backed by an existing ServiceRPCBase.
@@ -60,19 +59,4 @@ func (f *ServiceRpc) AnalyticsClient() (*analytics.AnalyticsClient, error) {
 
 func (f *ServiceRpc) SecurityClient() (*owsec.SecurityClient, error) {
 	return owsec.NewSecurityClient(f.deps)
-}
-
-// UserScopedAnalyticsClient returns a UserScopedAnalyticsClient configured with the underlying resolver, logger, and TLS root CA.
-// If baseURL is provided, it takes precedence over discovery.
-func (f *ServiceRpc) UserScopedAnalyticsClient(baseURL string, opts ...analytics.UserScopedOption) (analytics.UserScopedAnalyticsClient, error) {
-	if f == nil || f.deps == nil {
-		return nil, apperror.New(apperror.CodeInternal, "service rpc is nil")
-	}
-	cfg := analytics.UserScopedConfig{
-		BaseURL:   baseURL,
-		Resolver:  f.deps.Resolver(),
-		Logger:    f.deps.Logger(),
-		TLSRootCA: f.tlsRootCA,
-	}
-	return analytics.NewUserScopedClient(cfg, opts...)
 }

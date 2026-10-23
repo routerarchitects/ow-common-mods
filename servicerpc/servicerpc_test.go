@@ -2,21 +2,16 @@ package servicerpc
 
 import (
 	"context"
-	"crypto/x509"
-	"encoding/pem"
-	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
-	"sync/atomic"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/routerarchitects/ow-common-mods/servicediscovery"
-	"github.com/routerarchitects/ow-common-mods/servicerpc/analytics"
+	"github.com/routerarchitects/ow-common-mods/servicerpc/common"
 )
 
 func TestNewServiceRpc_Validation(t *testing.T) {
@@ -26,6 +21,65 @@ func TestNewServiceRpc_Validation(t *testing.T) {
 	}, slog.Default())
 	if err == nil {
 		t.Fatalf("expected error for empty internal name")
+	}
+}
+
+type factoryResolver struct {
+	instance    common.ServiceInstance
+	serviceName string
+}
+
+func (r *factoryResolver) Resolve(serviceName string) (*common.ServiceInstance, error) {
+	r.serviceName = serviceName
+	return &r.instance, nil
+}
+
+func TestNewServiceRpcWithBase_InternalRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/internal/test" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("X-API-KEY") != "service-key" || r.Header.Get("X-INTERNAL-NAME") != "caller" {
+			t.Error("internal authentication headers were not preserved")
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil || string(body) != `{"value":1}` {
+			t.Errorf("unexpected request body: %s, error: %v", body, err)
+		}
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+	resolver := &factoryResolver{instance: common.ServiceInstance{
+		Key: "service-key", PrivateEndPoint: server.URL, PublicEndPoint: "https://public.invalid",
+	}}
+	requester, err := common.NewFiberRequester("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := common.NewServiceRPCBaseWithDeps(resolver, requester, "caller", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rpc := NewServiceRpcWithBase(base)
+	if rpc.Base() != base || rpc.Base().Resolver() != resolver {
+		t.Fatal("injected base and resolver were not preserved")
+	}
+	if client, err := rpc.AnalyticsClient(); err != nil || client == nil {
+		t.Fatalf("create analytics client: %v", err)
+	}
+	if client, err := rpc.SecurityClient(); err != nil || client == nil {
+		t.Fatalf("create security client: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	response, err := rpc.Send(ctx, http.MethodPost, "/internal/test", strings.NewReader(`{"value":1}`), "example-service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Close()
+	if resolver.serviceName != "example-service" || response.StatusCode() != http.StatusAccepted || string(response.Body()) != `{"ok":true}` {
+		t.Fatalf("unexpected response from %q: %d %s", resolver.serviceName, response.StatusCode(), response.Body())
 	}
 }
 
@@ -54,103 +108,5 @@ func TestNewServiceRpc_Wiring(t *testing.T) {
 	}
 	if client, err := rpc.SecurityClient(); err != nil || client == nil {
 		t.Fatalf("expected security client")
-	}
-}
-
-func TestUserScopedAnalyticsClient_TLSRootCA(t *testing.T) {
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/devices/gw-1/memory-summary" {
-			t.Errorf("unexpected request path: %s", r.URL.Path)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"trusted":true}`))
-	}))
-	defer server.Close()
-
-	caPath := filepath.Join(t.TempDir(), "root-ca.pem")
-	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
-	if err := os.WriteFile(caPath, caPEM, 0600); err != nil {
-		t.Fatalf("write test CA: %v", err)
-	}
-
-	for _, tc := range []struct {
-		name      string
-		tlsRootCA string
-		trusted   bool
-	}{
-		{name: "configured CA", tlsRootCA: caPath, trusted: true},
-		{name: "unconfigured CA"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			rpc, err := NewServiceRpc(&servicediscovery.Discovery{}, ServiceRpcConfig{
-				TLSRootCA:    tc.tlsRootCA,
-				InternalName: "caller",
-			}, nil)
-			if err != nil {
-				t.Fatalf("create service RPC: %v", err)
-			}
-
-			// Use the explicit URL without consulting the uninitialized discovery store.
-			client, err := rpc.UserScopedAnalyticsClient(server.URL, analytics.WithResolver(nil))
-			if err != nil {
-				t.Fatalf("create user-scoped client: %v", err)
-			}
-			defer client.(io.Closer).Close()
-
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			result, err := client.GetGatewayFreeMemory(ctx, "gw-1", "2026-10-21T10:00:00Z", 1, "Bearer test-token")
-			if !tc.trusted {
-				var unknownAuthority x509.UnknownAuthorityError
-				if !errors.As(err, &unknownAuthority) {
-					t.Fatalf("expected untrusted CA error, got %v", err)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("request with configured CA failed: %v", err)
-			}
-			if body, ok := result.(map[string]any); !ok || body["trusted"] != true {
-				t.Fatalf("unexpected response: %v", result)
-			}
-		})
-	}
-}
-
-func TestUserScopedAnalyticsClient_RetryPolicy(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		opts     []analytics.UserScopedOption
-		attempts int32
-	}{
-		{name: "default", attempts: 3},
-		{name: "disabled", opts: []analytics.UserScopedOption{analytics.WithMaxRetries(0)}, attempts: 1},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var attempts atomic.Int32
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				attempts.Add(1)
-				w.WriteHeader(http.StatusServiceUnavailable)
-			}))
-			defer server.Close()
-			rpc, err := NewServiceRpc(&servicediscovery.Discovery{}, ServiceRpcConfig{InternalName: "caller"}, nil)
-			if err != nil {
-				t.Fatalf("create service RPC: %v", err)
-			}
-			opts := append([]analytics.UserScopedOption{
-				analytics.WithSleeper(func(context.Context, time.Duration) error { return nil }),
-			}, tc.opts...)
-			client, err := rpc.UserScopedAnalyticsClient(server.URL, opts...)
-			if err != nil {
-				t.Fatalf("create user-scoped client: %v", err)
-			}
-			defer client.(io.Closer).Close()
-			if _, err := client.GetGatewayFreeMemory(context.Background(), "gw-1", "2026-10-21T10:00:00Z", 1, "Bearer tok"); err == nil {
-				t.Fatal("expected error after retry exhaustion")
-			}
-			if got := attempts.Load(); got != tc.attempts {
-				t.Errorf("HTTP attempts = %d, want %d", got, tc.attempts)
-			}
-		})
 	}
 }
