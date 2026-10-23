@@ -134,3 +134,47 @@ Recommended unit tests:
 - requester failures and status-code mapping
 - context timeout/cancellation propagation from caller
 - single-endpoint behavior in `SecurityClient.ValidateToken`
+
+## Next release: compatibility with v0.5.0
+
+The published `servicerpc/v0.5.0` tag includes a user-scoped Analytics HTTP
+client that is absent from this branch. This is a source-breaking API removal
+for consumers of `analytics.UserScopedAnalyticsClient`, `NewUserScopedClient`,
+`UserScopedConfig`, `UserScopedOption`, its `With*` options, `APIClientError`
+(including `ApiClientError`), `FormatAnalyticsErrorMessage`, `Sleeper`,
+`JitterFunc`, `ClockFunc`, or `ServiceRpc.UserScopedAnalyticsClient`. Relative
+to v0.5.0, the Analytics-only `EndpointMode` type/constants and
+`ValidatePrivateIdentity` are also absent. Existing internal RPC clients and
+generic discovery/factory APIs are retained.
+
+Consumer audit on 2026-10-23:
+
+| Consumer checked | Declared servicerpc version | Finding |
+| --- | --- | --- |
+| [ra-openlan-nw-topology](https://github.com/routerarchitects/ra-openlan-nw-topology/blob/main/go.mod) | v0.2.0 | No removed-client references found on the indexed default branch |
+| [mango-go-foundation-service](https://github.com/routerarchitects/mango-go-foundation-service/blob/main/go.mod) | v0.3.0 | No removed-client references found on the indexed default branch |
+| [mango-parental-control](https://github.com/routerarchitects/mango-parental-control/blob/main/go.mod) | v0.3.0 | No removed-client references found on the indexed default branch |
+| [mango-mdu-service](https://github.com/routerarchitects/mango-mdu-service/blob/main/go.mod) | v0.2.0 | No removed-client references found on the indexed default branch |
+| [mango-billing-service](https://github.com/routerarchitects/mango-billing-service/blob/main/go.mod) | v0.2.0 | No removed-client references found on the indexed default branch |
+| [mango-mcp-server PR #5](https://github.com/routerarchitects/mango-mcp-server/pull/5) at `9497b38a9153b4b6fa30e10a718d6223046f5a54` | v0.5.0 | Inspected Analytics and internal RPC clients use MCP-local Analytics APIs and retained shared infrastructure |
+
+The audit searched accessible indexed `routerarchitects` default branches for
+`UserScopedAnalyticsClient`, `NewUserScopedClient`, and `UserScopedConfig`, and
+searched the available local service checkouts. No consumer of the removed
+shared client was found. The dependency versions above were read from GitHub
+`go.mod` files; they are declared requirements, not verified deployment module
+graphs. This audit does not cover every active branch, unindexed/private
+repository, external consumer, or deployed version.
+
+Before publishing the next module version, repeat the consumer search at the
+release candidate, check active service branches and effective module graphs,
+and record service-owner confirmation for consumers outside the search scope.
+Keep this release prerequisite open until those checks are complete.
+
+Do not publish this removal as a v0.5.x compatible patch or rewrite an existing
+tag. Use a new pre-v1 minor version (recommended `servicerpc/v0.6.0`) and explicit
+breaking-change release notes listing the removed APIs. Existing consumers can
+remain pinned to v0.5.0 until migrated. Move any remaining users to an
+application-owned Analytics client before upgrading; the MCP implementation is
+local to MCP and is not a replacement shared-library import. Its five summary
+operations, authentication, transport, and error handling are owned by MCP.
